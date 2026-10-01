@@ -91,6 +91,8 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
 
     # ------------------ GENERASI PHANTOM ------------------
     @st.cache_data
+    # Ganti fungsi generate_phantom dengan lingkaran kecil yang presisi
+    @st.cache_data
     def generate_phantom(tipe):
         N = 160
         img = np.zeros((N, N))
@@ -100,11 +102,16 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
             raw_img = shepp_logan_phantom()
             img = rescale(raw_img, scale=N/raw_img.shape[0], mode='reflect', channel_axis=None)
         elif tipe == "Titik Tunggal (Off-Center Dot)":
-            # Titik kecil di posisi off-center (x= center+30, y= center-20)
-            img[center-25:center-15, center+25:center+35] = 1.0
+            # Membuat titik bundar kecil (radius 3 piksel) di offset (x=+25, y=-20)
+            y, x = np.ogrid[-center:N-center, -center:N-center]
+            mask = (x - 25)**2 + (y + 20)**2 <= 4**2
+            img[mask] = 1.0
         elif tipe == "Dua Titik (Multi-Dot)":
-            img[center-30:center-20, center-30:center-20] = 1.0
-            img[center+20:center+30, center+20:center+30] = 0.7
+            y, x = np.ogrid[-center:N-center, -center:N-center]
+            mask1 = (x + 25)**2 + (y + 20)**2 <= 4**2
+            mask2 = (x - 20)**2 + (y - 25)**2 <= 4**2
+            img[mask1] = 1.0
+            img[mask2] = 0.7
         elif tipe == "Lingkaran Konsentris":
             y, x = np.ogrid[-center:N-center, -center:N-center]
             mask1 = x**2 + y**2 <= 60**2
@@ -145,10 +152,11 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         # Panel 1: Objek + Berkas Sinar-X
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax1.imshow(image, cmap='bone')
-        rad = np.deg2rad(sudut_sekarang + 90)
+        rad = np.deg2rad(sudut_sekarang)
         length = center * 0.95
-        x_line = [center - length * np.cos(rad), center + length * np.cos(rad)]
-        y_line = [center - length * np.sin(rad), center + length * np.sin(rad)]
+        # Arah proyeksi radon scikit-image tegak lurus terhadap sudut theta
+        x_line = [center - length * np.sin(rad), center + length * np.sin(rad)]
+        y_line = [center + length * np.cos(rad), center - length * np.cos(rad)]
         ax1.plot(x_line, y_line, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Radiasi')
         ax1.scatter([x_line[0]], [y_line[0]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
         ax1.legend(loc='upper right', fontsize=8)
