@@ -21,19 +21,26 @@ st.markdown("<h3 style='text-align: center; color: #ffffff; margin-top: 0px;'>Mo
 st.write("---")
 
 # ---------------------------------------------------------
-# 2. NAVIGASI UTAMA (TAB SYSTEM)
+# 2. NAVIGASI UTAMA (MODULAR NAVIGATION)
 # ---------------------------------------------------------
-tab_teori, tab_m1, tab_m2, tab_m3 = st.tabs([
-    "📖 Panduan & Teori Dasar", 
-    "🔬 Modul 1: Akuisisi & Sinogram", 
-    "🧩 Modul 2: Rekonstruksi 2D (SBP vs FBP)", 
-    "🎨 Modul 3: Manipulasi & Visualisasi"
-])
+menu_terpilih = st.radio(
+    label="Pilih Halaman / Modul:",
+    options=[
+        "📖 Panduan & Teori Dasar", 
+        "🔬 Modul 1: Akuisisi & Sinogram", 
+        "🧩 Modul 2: Rekonstruksi 2D (SBP vs FBP)", 
+        "🎨 Modul 3: Manipulasi & Visualisasi"
+    ],
+    horizontal=True,
+    label_visibility="collapsed"
+)
+
+st.write("")
 
 # ---------------------------------------------------------
-# TAB 0: PANDUAN & TEORI DASAR
+# HALAMAN 0: PANDUAN & TEORI DASAR (TANPA SIDEBAR)
 # ---------------------------------------------------------
-with tab_teori:
+if menu_terpilih == "📖 Panduan & Teori Dasar":
     st.markdown("### 📚 Dasar Teori Computed Tomography (CT-Scan)")
     
     col_t1, col_t2 = st.columns([2, 1])
@@ -50,21 +57,23 @@ with tab_teori:
     with col_t2:
         st.info("""
         💡 **Petunjuk Praktikum:**
-        - Gunakan panel kontrol di sebelah kiri (*sidebar*) atau di dalam modul untuk mengubah parameter simulasi.
+        - Gunakan navigasi di atas untuk berpindah antar-modul.
+        - Panel kontrol di sebelah kiri (*sidebar*) akan otomatis muncul saat Anda memasuki Modul Praktikum.
         - Amati perubahan respon grafik secara *real-time*.
         - Catat hasil pengamatan untuk mengisi Lembar Kerja Mahasiswa (LKM) pada myITS Classroom.
         """)
 
 # ---------------------------------------------------------
-# TAB 1: MODUL 1 (AKUISISI DATA & SINOGRAM)
+# HALAMAN 1: MODUL 1 (AKUISISI DATA & SINOGRAM)
 # ---------------------------------------------------------
-with tab_m1:
+elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     st.subheader("Modul 1: Akuisisi Data Sinar-X & Pembentukan Sinogram")
     
-    # Sidebar Khusus Modul 1
+    # Sidebar HANYA dipanggil & dirender di dalam Modul 1
     st.sidebar.header("⚙️ Parameter Modul 1")
     jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi", min_value=10, max_value=360, value=180, step=10, key="m1_jml")
-    sudut_maksimal = st.sidebar.selectbox("Rentang Sudut (°)", options=[180, 360], index=0, key="m1_rentang")
+    sudut_maksimal = st.sidebar.slider("Rentang Sudut (°)", min_value=10, max_value=360, value=180, step=10, key="m1_rentang")
+    #sudut_maksimal = st.sidebar.selectbox("Rentang Sudut (°)", options=[180, 360], index=0, key="m1_rentang")
     sudut_aktif = st.sidebar.slider("Sudut Aktif (°)", min_value=0, max_value=int(sudut_maksimal - 1), value=45, step=1, key="m1_aktif")
 
     # Fungsi Pemrosesan Modul 1
@@ -125,15 +134,25 @@ with tab_m1:
     st.pyplot(fig)
 
 # ---------------------------------------------------------
-# TAB 2: MODUL 2 (REKONSTRUKSI 2D)
+# HALAMAN 2: MODUL 2 (REKONSTRUKSI 2D)
 # ---------------------------------------------------------
-with tab_m2:
+elif menu_terpilih == "🧩 Modul 2: Rekonstruksi 2D (SBP vs FBP)":
     st.subheader("Modul 2: Rekonstruksi Citra 2D (SBP vs FBP)")
+    
+    # Sidebar Khusus Modul 2 (Akan dipasang saat pembuatan Modul 2)
+    st.sidebar.header("⚙️ Parameter Modul 2")
+    st.sidebar.info("Pengaturan filter dan jumlah sudut rekonstruksi akan ada di sini.")
+    
     st.info("🚧 Modul ini sedang dalam tahap pengembangan. Segera siap digunakan!")
 
 # ---------------------------------------------------------
-# TAB 3: MODUL 3 (MANIPULASI & VISUALISASI)
+# HALAMAN 3: MODUL 3 (MANIPULASI & VISUALISASI)
 # ---------------------------------------------------------
-with tab_m3:
+elif menu_terpilih == "🎨 Modul 3: Manipulasi & Visualisasi":
     st.subheader("Modul 3: Manipulasi & Visualisasi Citra CT-Scan")
+    
+    # Sidebar Khusus Modul 3 (Akan dipasang saat pembuatan Modul 3)
+    st.sidebar.header("⚙️️ Parameter Modul 3")
+    st.sidebar.info("Pengaturan Window Width & Level akan ada di sini.")
+    
     st.info("🚧 Modul ini sedang dalam tahap pengembangan. Segera siap digunakan!")
