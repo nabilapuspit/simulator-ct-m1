@@ -15,7 +15,8 @@ st.write("---")
 st.sidebar.header("⚙️ Parameter Akuisisi")
 
 jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi", min_value=10, max_value=360, value=180, step=10)
-sudut_maksimal = st.sidebar.selectbox("Rentang Sudut (°)", options=[180, 360], index=0)
+sudut_maksimal = st.sidebar.slider("Rentang Sudut (°)", min_value=10, max_value=360, value-180, step=10)
+#sudut_maksimal = st.sidebar.selectbox("Rentang Sudut (°)", options=[180, 360], index=0)
 sudut_aktif = st.sidebar.slider("Sudut Aktif (°)", min_value=0, max_value=int(sudut_maksimal - 1), value=45, step=1)
 
 # 1. Penyiapan Phantom
