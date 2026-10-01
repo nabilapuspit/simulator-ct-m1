@@ -76,7 +76,8 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     )
     
     jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=10, max_value=360, value=180, step=10)
-    sudut_maksimal = st.sidebar.selectbox("Rentang Sudut Total (°)", options=[180, 360], index=0)
+    sudut_maksimal = st.sidebar.slider("Rentang Sudut Total (°)", min_value=10, max_value=360, value=180, step=10)
+    #sudut_maksimal = st.sidebar.selectbox("Rentang Sudut Total (°)", options=[180, 360], index=0)
     
     st.sidebar.header("📻 2. Kondisi Fisika Sinar-X")
     tambah_noise = st.sidebar.checkbox("Simulasi Derau Foton (Poisson Noise)")
