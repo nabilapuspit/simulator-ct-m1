@@ -63,7 +63,7 @@ if menu_terpilih == "📖 Panduan & Teori Dasar":
         """)
 
 # ---------------------------------------------------------
-# HALAMAN 1: MODUL 1 (STABLE IN-MEMORY STREAMLIT APP)
+# HALAMAN 1: MODUL 1 (FORWARD PROJECTION & EXACT 1-TO-1 MATCHING)
 # ---------------------------------------------------------
 elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     st.subheader("Modul 1: Akuisisi Data Sinar-X & Pembentukan Sinogram")
@@ -74,23 +74,23 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     jenis_phantom = st.sidebar.selectbox(
         "Pilih Objek / Phantom", 
         options=["Titik Tunggal (Off-Center Dot)", "Shepp-Logan (Anatomi Otak)", "Dua Titik (Multi-Dot)", "Lingkaran Konsentris"],
-        key="m1_phantom_select"
+        key="k_phantom"
     )
     
-    jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=10, max_value=360, value=180, step=10, key="m1_jml_sudut")
-    sudut_maksimal = st.sidebar.slider("Rentang Sudut Total (°)", min_value=10, max_value=360, value=180, step=10, key="m1_max_sudut")
+    jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=10, max_value=360, value=180, step=10, key="k_jml_sudut")
+    sudut_maksimal = st.sidebar.slider("Rentang Sudut Total (°)", min_value=10, max_value=360, value=180, step=10, key="k_max_sudut")
     
     st.sidebar.header("📻 2. Kondisi Fisika Sinar-X")
-    tambah_noise = st.sidebar.checkbox("Simulasi Derau Foton (Poisson Noise)", key="m1_noise_chk")
+    tambah_noise = st.sidebar.checkbox("Simulasi Derau Foton (Poisson Noise)", key="k_noise_chk")
     level_noise = 0
     if tambah_noise:
-        level_noise = st.sidebar.slider("Tingkat Intensitas Noise", min_value=1, max_value=10, value=3, key="m1_noise_lvl")
+        level_noise = st.sidebar.slider("Tingkat Intensitas Noise", min_value=1, max_value=10, value=3, key="k_noise_lvl")
         
     st.sidebar.header("🎬 3. Kontrol Akuisisi")
-    btn_start = st.sidebar.button("▶ Mulai Pemindaian (Start Scan)", key="m1_btn_start")
+    btn_start = st.sidebar.button("▶ Mulai Pemindaian (Start Scan)", key="k_btn_start")
     
     max_val_slider = max(1, int(sudut_maksimal - 1))
-    sudut_aktif = st.sidebar.slider("Sudut Manual (°)", min_value=0, max_value=max_val_slider, value=0, step=1, key="m1_manual_angle")
+    sudut_aktif = st.sidebar.slider("Sudut Manual (°)", min_value=0, max_value=max_val_slider, value=0, step=1, key="k_angle_manual")
 
     # ------------------ GENERASI PHANTOM ------------------
     def generate_phantom(tipe):
@@ -100,15 +100,16 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         
         if tipe == "Titik Tunggal (Off-Center Dot)":
             y, x = np.ogrid[-center:N-center, -center:N-center]
-            mask = (x - 25)**2 + (y - 20)**2 <= 4**2
+            # Offset x=+30, y=+20
+            mask = (x - 30)**2 + (y - 20)**2 <= 4**2
             img[mask] = 1.0
         elif tipe == "Shepp-Logan (Anatomi Otak)":
             raw_img = shepp_logan_phantom()
             img = rescale(raw_img, scale=N/raw_img.shape[0], mode='reflect', channel_axis=None)
         elif tipe == "Dua Titik (Multi-Dot)":
             y, x = np.ogrid[-center:N-center, -center:N-center]
-            mask1 = (x - 25)**2 + (y - 20)**2 <= 4**2
-            mask2 = (x + 20)**2 + (y + 25)**2 <= 4**2
+            mask1 = (x - 30)**2 + (y - 20)**2 <= 4**2
+            mask2 = (x + 25)**2 + (y + 25)**2 <= 4**2
             img[mask1] = 1.0
             img[mask2] = 0.7
         elif tipe == "Lingkaran Konsentris":
@@ -135,7 +136,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
 
     max_attenuation = float(np.max(sinogram_full) * 1.15) if np.max(sinogram_full) > 0 else 10.0
 
-    # ------------------ FUNGSI RENDER PLOT STABIL ------------------
+    # ------------------ FUNGSI RENDER FORWARD PROJECTION SINKRON ------------------
     def render_scan_frame(curr_idx, is_partial=False):
         sudut_sekarang = theta[curr_idx]
         profil_1d = sinogram_full[:, curr_idx]
@@ -151,45 +152,53 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         for ax in [ax1, ax2, ax3]:
             ax.set_facecolor('#161b22')
 
-        # ---------------- Panel 1: Sinar-X ----------------
+        # ---------------- Panel 1: Sinar-X (Parallel Beams Array) ----------------
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax1.imshow(image, cmap='bone', origin='lower')
         
         rad = np.deg2rad(sudut_sekarang)
+        # Vektor arah garis sinar-X
         dir_x = -np.sin(rad)
         dir_y = np.cos(rad)
+        # Vektor sumbu detektor t
         norm_x = np.cos(rad)
         norm_y = np.sin(rad)
         
         length = center * 1.3
         
-        # Garis berkas tipis sejajar
-        offsets = np.linspace(-center*0.8, center*0.8, 7)
+        # Gambar seluruh lapangan sinar-X sejajar (Parallel Beams)
+        num_lines = 15
+        offsets = np.linspace(-center*0.9, center*0.9, num_lines)
         for off in offsets:
             x_c = center + off * norm_x
             y_c = center + off * norm_y
             ax1.plot([x_c - length * dir_x, x_c + length * dir_x],
                      [y_c - length * dir_y, y_c + length * dir_y],
-                     color='#ff1744', linewidth=0.7, alpha=0.35, linestyle=':')
+                     color='#38ef7d', linewidth=0.5, alpha=0.2, linestyle=':')
 
+        # Sorot sinar aktif yang menembus peak (jika ada atenuasi)
         if np.max(profil_1d) > 0.05:
             idx_peak = int(np.argmax(profil_1d))
-        else:
-            idx_peak = int(center)
+            t_offset = idx_peak - center
             
-        t_offset = idx_peak - center
-        x0 = center + t_offset * norm_x
-        y0 = center + t_offset * norm_y
-        
-        x_main = [x0 - length * dir_x, x0 + length * dir_x]
-        y_main = [y0 - length * dir_y, y0 + length * dir_y]
-        
-        ax1.plot(x_main, y_main, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Radiasi Aktif')
-        ax1.scatter([x_main[1]], [y_main[1]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
+            x0 = center + t_offset * norm_x
+            y0 = center + t_offset * norm_y
+            
+            x_main = [x0 - length * dir_x, x0 + length * dir_x]
+            y_main = [y0 - length * dir_y, y0 + length * dir_y]
+            
+            ax1.plot(x_main, y_main, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Sinar Menembus Objek')
+            ax1.scatter([x_main[1]], [y_main[1]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
+            ax1.legend(loc='upper right', fontsize=8)
+        else:
+            # Jika tidak ada objek yang tertembus, tampilkan berkas pusat t=0
+            x_main = [center - length * dir_x, center + length * dir_x]
+            y_main = [center - length * dir_y, center + length * dir_y]
+            ax1.plot(x_main, y_main, color='#00e5ff', linewidth=1.5, linestyle=':', label='Berkas Pusat (t=0)')
+            ax1.legend(loc='upper right', fontsize=8)
         
         ax1.set_xlim(0, image.shape[1])
         ax1.set_ylim(0, image.shape[0])
-        ax1.legend(loc='upper right', fontsize=8)
         ax1.set_axis_off()
 
         # ---------------- Panel 2: Profil Proyeksi 1D ----------------
@@ -198,7 +207,8 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         ax2.fill_between(range(len(profil_1d)), profil_1d, color='#00e5ff', alpha=0.2)
         
         if np.max(profil_1d) > 0.05:
-            ax2.axvline(x=idx_peak, color='#ff1744', linestyle='--', linewidth=1.2, alpha=0.8, label='Posisi Peak')
+            ax2.axvline(x=idx_peak, color='#ff1744', linestyle='--', linewidth=1.2, alpha=0.8, label='Posisi Peak Atenuasi')
+            ax2.legend(loc='upper right', fontsize=8)
         
         ax2.set_xlabel("Posisi Detektor (t)", color='white', fontsize=9)
         ax2.set_ylabel("Jumlah Atenuasi", color='white', fontsize=9)
@@ -210,9 +220,9 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         # ---------------- Panel 3: Sinogram Akumulatif ----------------
         ax3.set_title(f"3. Sinogram Akumulatif (0–{sudut_maksimal}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax3.imshow(sino_display, cmap='bone', extent=(0, sudut_maksimal, 0, sino_display.shape[0]), 
-                   aspect='auto', interpolation='nearest', vmin=0, vmax=np.max(sinogram_full), origin='lower')
+                   aspect='auto', interpolation='nearest', vmin=0, vmax=float(np.max(sinogram_full)), origin='lower')
         
-        ax3.axvline(x=sudut_sekarang, color='#ff1744', linewidth=1.8, linestyle='--', label='Posisi Angle')
+        ax3.axvline(x=sudut_sekarang, color='#ff1744', linewidth=1.8, linestyle='--', label='Sudut Aktif')
         ax3.set_xlim(0, sudut_maksimal)
         ax3.set_ylim(0, sino_display.shape[0])
         ax3.set_xlabel(r"Sudut Proyeksi $\theta$ (°)", color='white', fontsize=9)
@@ -222,31 +232,28 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         plt.tight_layout()
         return fig, profil_1d, sudut_sekarang
 
-    # ------------------ ESEKUSI ANIMASI / MANUAL ------------------
+    # ------------------ EXECUTION ANIMASI / MANUAL ------------------
     placeholder = st.empty()
 
     if btn_start:
-        step = max(1, jumlah_sudut // 35)
+        step = max(1, jumlah_sudut // 30)
         for i in range(0, jumlah_sudut, step):
             fig, profil_1d, sudut_sekarang = render_scan_frame(i, is_partial=True)
-            with placeholder.container():
-                st.pyplot(fig)
-            plt.close(fig)
-            time.sleep(0.02)
+            placeholder.pyplot(fig)
+            plt.close('all')
+            time.sleep(0.01)
             
         fig, profil_1d, sudut_sekarang = render_scan_frame(jumlah_sudut - 1, is_partial=False)
-        with placeholder.container():
-            st.pyplot(fig)
-        plt.close(fig)
+        placeholder.pyplot(fig)
+        plt.close('all')
     else:
         idx_sudut = int((sudut_aktif / sudut_maksimal) * jumlah_sudut)
         idx_sudut = min(idx_sudut, jumlah_sudut - 1)
         fig, profil_1d, sudut_sekarang = render_scan_frame(idx_sudut, is_partial=False)
-        with placeholder.container():
-            st.pyplot(fig)
-        plt.close(fig)
+        placeholder.pyplot(fig)
+        plt.close('all')
 
-    # ------------------ METRIK & EXPORT (IN-MEMORY SAFE) ------------------
+    # ------------------ METRIK & EXPORT ------------------
     st.write("---")
     st.markdown("### 📊 Analisis Data Proyeksi & Unduh Hasil")
     
@@ -255,7 +262,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     col_a2.metric(label="Atenuasi Maksimum (Peak 1D)", value=f"{np.max(profil_1d):.2f}")
     col_a3.metric(label="Total Integral Atenuasi (Area)", value=f"{np.sum(profil_1d):.1f}")
 
-    # Konversi data CSV di memori (In-Memory Buffer) tanpa menulis ke disk
     buffer = io.StringIO()
     np.savetxt(buffer, sinogram_full, delimiter=",")
     csv_bytes = buffer.getvalue()
@@ -265,7 +271,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         data=csv_bytes,
         file_name=f"sinogram_{jenis_phantom.split()[0].lower()}.csv",
         mime="text/csv",
-        key="m1_download_csv"
+        key="k_download_csv"
     )
 
 # ---------------------------------------------------------
