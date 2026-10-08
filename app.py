@@ -320,7 +320,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         min_value=0.0,
         max_value=float(max(1, sudut_maksimal - 1)),
         value=0.0,
-        step=1.0
+        step=10.0
     )
 
 
