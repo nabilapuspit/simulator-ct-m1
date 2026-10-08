@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from skimage.data import shepp_logan_phantom
 from skimage.transform import radon, rescale
 import time
+import io
 
 # ---------------------------------------------------------
 # 1. KONFIGURASI HALAMAN & TEMA
@@ -62,7 +63,7 @@ if menu_terpilih == "📖 Panduan & Teori Dasar":
         """)
 
 # ---------------------------------------------------------
-# HALAMAN 1: MODUL 1 (EXACT GEOMETRY MATCHING WITH VIDEO)
+# HALAMAN 1: MODUL 1 (STABLE IN-MEMORY STREAMLIT APP)
 # ---------------------------------------------------------
 elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     st.subheader("Modul 1: Akuisisi Data Sinar-X & Pembentukan Sinogram")
@@ -88,12 +89,10 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     st.sidebar.header("🎬 3. Kontrol Akuisisi")
     btn_start = st.sidebar.button("▶ Mulai Pemindaian (Start Scan)", key="m1_btn_start")
     
-    # Evaluasi batas aman slider sudut manual
     max_val_slider = max(1, int(sudut_maksimal - 1))
     sudut_aktif = st.sidebar.slider("Sudut Manual (°)", min_value=0, max_value=max_val_slider, value=0, step=1, key="m1_manual_angle")
 
     # ------------------ GENERASI PHANTOM ------------------
-    @st.cache_data
     def generate_phantom(tipe):
         N = 160
         img = np.zeros((N, N))
@@ -134,9 +133,9 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         noise = np.random.normal(0, level_noise * 0.1, sinogram_full.shape)
         sinogram_full = np.clip(sinogram_full + noise, 0, None)
 
-    max_attenuation = float(np.max(sinogram_full) * 1.1) if np.max(sinogram_full) > 0 else 10.0
+    max_attenuation = float(np.max(sinogram_full) * 1.15) if np.max(sinogram_full) > 0 else 10.0
 
-    # ------------------ FUNGSI RENDER PLOT STABIL & SINKRON EXACT ------------------
+    # ------------------ FUNGSI RENDER PLOT STABIL ------------------
     def render_scan_frame(curr_idx, is_partial=False):
         sudut_sekarang = theta[curr_idx]
         profil_1d = sinogram_full[:, curr_idx]
@@ -227,15 +226,14 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     placeholder = st.empty()
 
     if btn_start:
-        step = max(1, jumlah_sudut // 40)
+        step = max(1, jumlah_sudut // 35)
         for i in range(0, jumlah_sudut, step):
             fig, profil_1d, sudut_sekarang = render_scan_frame(i, is_partial=True)
             with placeholder.container():
                 st.pyplot(fig)
-            plt.close(fig)  # PENTING: Mencegah Memory Leak
+            plt.close(fig)
             time.sleep(0.02)
             
-        # Tampilkan frame akhir secara utuh
         fig, profil_1d, sudut_sekarang = render_scan_frame(jumlah_sudut - 1, is_partial=False)
         with placeholder.container():
             st.pyplot(fig)
@@ -248,7 +246,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
             st.pyplot(fig)
         plt.close(fig)
 
-    # ------------------ METRIK & EXPORT ------------------
+    # ------------------ METRIK & EXPORT (IN-MEMORY SAFE) ------------------
     st.write("---")
     st.markdown("### 📊 Analisis Data Proyeksi & Unduh Hasil")
     
@@ -257,15 +255,18 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     col_a2.metric(label="Atenuasi Maksimum (Peak 1D)", value=f"{np.max(profil_1d):.2f}")
     col_a3.metric(label="Total Integral Atenuasi (Area)", value=f"{np.sum(profil_1d):.1f}")
 
-    np.savetxt("sinogram_data.csv", sinogram_full, delimiter=",")
-    with open("sinogram_data.csv", "rb") as file:
-        st.download_button(
-            label="💾 Unduh Data Sinogram Lengkap (CSV)",
-            data=file,
-            file_name=f"sinogram_{jenis_phantom.split()[0].lower()}.csv",
-            mime="text/csv",
-            key="m1_download_csv"
-        )
+    # Konversi data CSV di memori (In-Memory Buffer) tanpa menulis ke disk
+    buffer = io.StringIO()
+    np.savetxt(buffer, sinogram_full, delimiter=",")
+    csv_bytes = buffer.getvalue()
+
+    st.download_button(
+        label="💾 Unduh Data Sinogram Lengkap (CSV)",
+        data=csv_bytes,
+        file_name=f"sinogram_{jenis_phantom.split()[0].lower()}.csv",
+        mime="text/csv",
+        key="m1_download_csv"
+    )
 
 # ---------------------------------------------------------
 # HALAMAN 2 & 3
