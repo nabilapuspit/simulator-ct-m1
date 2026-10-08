@@ -156,26 +156,33 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         for ax in [ax1, ax2, ax3]:
             ax.set_facecolor('#161b22')
 
-        # ---------------- Panel 1 ----------------
+        # ---------------- Panel 1: Pemindaian Sinar-X (Presisi Radon 1:1) ----------------
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax1.imshow(image, cmap='bone', origin='lower')
         
         rad = np.deg2rad(sudut_sekarang)
+        
+        # Vektor Normal (Arah Pergeseran Sumbu Detektor t)
         norm_x = np.cos(rad)
         norm_y = np.sin(rad)
+        
+        # Vektor Sinar-X (Tegak lurus sumbu detektor)
         dir_x = -np.sin(rad)
         dir_y = np.cos(rad)
         
-        t_center = (sinogram_full.shape[0] - 1) / 2.0
+        # Titik Tengah Detektor (Array Index Center)
+        t_center = (len(profil_1d) - 1) / 2.0
         t_offset = active_t - t_center
         
+        # Titik Potong Berkas Sinar-X Aktif pada Detektor
         x0 = center + t_offset * norm_x
         y0 = center + t_offset * norm_y
         
-        length = N * 1.2
+        length = N * 1.3
         x_main = [x0 - length * dir_x, x0 + length * dir_x]
         y_main = [y0 - length * dir_y, y0 + length * dir_y]
         
+        # Evaluasi Atenuasi di Posisi Detektor t
         val_at_t = profil_1d[clamp(int(active_t), 0, len(profil_1d)-1)]
         is_hit = val_at_t > 0.05
         line_color = '#ff1744' if is_hit else '#00e5ff'
