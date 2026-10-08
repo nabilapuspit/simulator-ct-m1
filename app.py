@@ -91,8 +91,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
 
     # ------------------ GENERASI PHANTOM ------------------
     @st.cache_data
-    # Ganti fungsi generate_phantom dengan lingkaran kecil yang presisi
-    @st.cache_data
     def generate_phantom(tipe):
         N = 160
         img = np.zeros((N, N))
@@ -149,14 +147,30 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         for ax in [ax1, ax2, ax3]:
             ax.set_facecolor('#161b22')
 
-        # Panel 1: Objek + Berkas Sinar-X
+        # Panel 1: Objek + Berkas Sinar-X (Disesuaikan dengan Offset Detektor t)
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax1.imshow(image, cmap='bone')
+        
         rad = np.deg2rad(sudut_sekarang)
-        length = center * 0.95
-        # Arah proyeksi radon scikit-image tegak lurus terhadap sudut theta
-        x_line = [center - length * np.sin(rad), center + length * np.sin(rad)]
-        y_line = [center + length * np.cos(rad), center - length * np.cos(rad)]
+        
+        # Cari offset t (posisi puncak atenuasi pada profil 1D)
+        idx_peak = np.argmax(profil_1d)
+        t_offset = idx_peak - center
+        
+        # Vektor arah garis pemindaian & vektor normal offset
+        dir_x = -np.sin(rad)
+        dir_y = np.cos(rad)
+        norm_x = np.cos(rad)
+        norm_y = np.sin(rad)
+        
+        # Titik tengah garis pemindaian yang tergeser sejauh t_offset
+        x_c = center + t_offset * norm_x
+        y_c = center + t_offset * norm_y
+        
+        length = center * 1.1
+        x_line = [x_c - length * dir_x, x_c + length * dir_x]
+        y_line = [y_c - length * dir_y, y_c + length * dir_y]
+        
         ax1.plot(x_line, y_line, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Radiasi')
         ax1.scatter([x_line[0]], [y_line[0]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
         ax1.legend(loc='upper right', fontsize=8)
