@@ -149,32 +149,77 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         for ax in [ax1, ax2, ax3]:
             ax.set_facecolor('#161b22')
 
-        # ---------------- Panel 1: Sinar-X ----------------
+        # ------------------ FUNGSI RENDER PLOT STABIL & SINKRON ------------------
+    def render_scan_frame(curr_idx, is_partial=False):
+        sudut_sekarang = theta[curr_idx]
+        profil_1d = sinogram_full[:, curr_idx]
+        
+        # Buat matriks sinogram parsial (hanya terisi hingga sudut saat ini)
+        sino_display = np.zeros_like(sinogram_full)
+        if is_partial:
+            sino_display[:, :curr_idx+1] = sinogram_full[:, :curr_idx+1]
+        else:
+            sino_display = sinogram_full
+
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4.5), gridspec_kw={'width_ratios': [1, 1, 1]})
+        fig.patch.set_facecolor('#0e1117')
+        for ax in [ax1, ax2, ax3]:
+            ax.set_facecolor('#161b22')
+
+        # ---------------- Panel 1: Sinar-X (Parallel Beam Array & Berkas Utama) ----------------
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax1.imshow(image, cmap='bone', origin='upper')
         
+        # Orientasi Radon scikit-image: Sudut theta diukur dari sumbu vertikal/horizontal
         rad = np.deg2rad(sudut_sekarang)
-        dir_x = -np.sin(rad)
-        dir_y = -np.cos(rad)
-        length = center * 1.3
-        x_line = [center - length * dir_x, center + length * dir_x]
-        y_line = [center - length * dir_y, center + length * dir_y]
         
-        ax1.plot(x_line, y_line, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Utama (t=0)')
-        ax1.scatter([x_line[0]], [y_line[0]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
-        ax1.plot(center, center, 'r+', markersize=10, markeredgewidth=2)
+        # Arah integrasi sinar-X (tegak lurus sudut proyeksi theta)
+        dir_x = -np.sin(rad)
+        dir_y = np.cos(rad)
+        
+        # Normal arah proyeksi (sumbu detektor t)
+        norm_x = np.cos(rad)
+        norm_y = np.sin(rad)
+        
+        # 1. Gambar Beberapa Berkas Sinar-X Sejajar (Parallel Beam Field) dengan Garis Tipis
+        length = center * 1.2
+        num_beams = 9
+        offsets = np.linspace(-center*0.8, center*0.8, num_beams)
+        for off in offsets:
+            x_c = center + off * norm_x
+            y_c = center + off * norm_y
+            ax1.plot([x_c - length * dir_x, x_c + length * dir_x],
+                     [y_c - length * dir_y, y_c + length * dir_y],
+                     color='#ff1744', linewidth=0.6, alpha=0.3, linestyle=':')
+
+        # 2. Gambar Berkas Sinar-X Utama yang Sesuai Puncak Atenuasi (Atau Sumbu Pusat jika tidak ada objek)
+        idx_peak = np.argmax(profil_1d) if np.max(profil_1d) > 0.1 else int(center)
+        t_offset = idx_peak - center
+        
+        x_c_main = center + t_offset * norm_x
+        y_c_main = center + t_offset * norm_y
+        
+        x_main = [x_c_main - length * dir_x, x_c_main + length * dir_x]
+        y_main = [y_c_main - length * dir_y, y_c_main + length * dir_y]
+        
+        ax1.plot(x_main, y_main, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Radiasi Aktif')
+        ax1.scatter([x_main[0]], [y_main[0]], color='#ffea00', s=60, zorder=5, label='Sumber Sinar-X')
+        
         ax1.set_xlim(0, image.shape[1])
-        ax1.set_ylim(image.shape[0], 0) # Kunci ukuran
+        ax1.set_ylim(image.shape[0], 0)
+        ax1.legend(loc='upper right', fontsize=8)
         ax1.set_axis_off()
 
         # ---------------- Panel 2: Profil 1D (Terisi Realtime) ----------------
         ax2.set_title(f"2. Profil Proyeksi 1D ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax2.plot(profil_1d, color='#00e5ff', linewidth=1.8)
         ax2.fill_between(range(len(profil_1d)), profil_1d, color='#00e5ff', alpha=0.2)
+        
+        # Penanda garis vertikal posisi berkas aktif yang ditampilkan di Panel 1
+        ax2.axvline(x=idx_peak, color='#ff1744', linestyle='--', linewidth=1.2, alpha=0.8)
+        
         ax2.set_xlabel("Posisi Detektor (t)", color='white', fontsize=9)
         ax2.set_ylabel("Jumlah Atenuasi", color='white', fontsize=9)
-        
-        # Kunci Batas Sumbu Y Supaya Plot Tidak Naik-Turun / Berubah Ukuran
         ax2.set_xlim(0, len(profil_1d))
         ax2.set_ylim(0, max_attenuation)
         ax2.grid(True, linestyle=':', alpha=0.3)
@@ -185,7 +230,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         ax3.imshow(sino_display, cmap='bone', extent=(0, sudut_maksimal, 0, sino_display.shape[0]), 
                    aspect='auto', interpolation='nearest', vmin=0, vmax=np.max(sinogram_full))
         
-        # Garis penanda posisi sudut scan saat ini
         ax3.axvline(x=sudut_sekarang, color='#ff1744', linewidth=1.8, linestyle='--', label='Posisi Beam')
         ax3.set_xlim(0, sudut_maksimal)
         ax3.set_ylim(0, sino_display.shape[0])
@@ -195,7 +239,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
 
         plt.tight_layout()
         return fig, profil_1d, sudut_sekarang
-
     # ------------------ ESEKUSI ANIMASI / MANUAL ------------------
     placeholder = st.empty()
 
