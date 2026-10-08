@@ -235,18 +235,35 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     placeholder = st.empty()
 
     if btn_start:
-        step = max(1, jumlah_sudut // 30)
-        for i in range(0, jumlah_sudut, step):
-            # Hitung posisi peak aktual untuk sudut ini agar animasi secara otomatis menelusuri lintasan titik
-            prof = sinogram_full[:, i]
-            auto_t = int(np.argmax(prof)) if np.max(prof) > 0.05 else int(N // 2)
-            
-            fig, profil_1d, sudut_sekarang = render_scan_frame(i, active_t=auto_t, is_partial=True)
+        # Animasi 1: Menyapu sudut theta secara bertahap
+        # Posisi active_t MURNI menggunakan nilai dari slider detektor_t_manual
+        step_angle = max(1, jumlah_sudut // 30)
+        for i in range(0, jumlah_sudut, step_angle):
+            fig, profil_1d, sudut_sekarang = render_scan_frame(
+                i, 
+                active_t=detektor_t_manual,  # Murni mengikuti slider detektor, tidak memaksa argmax/peak
+                is_partial=True
+            )
             placeholder.pyplot(fig)
             plt.close('all')
             time.sleep(0.01)
             
-        fig, profil_1d, sudut_sekarang = render_scan_frame(jumlah_sudut - 1, active_t=auto_t, is_partial=False)
+        fig, profil_1d, sudut_sekarang = render_scan_frame(
+            jumlah_sudut - 1, 
+            active_t=detektor_t_manual, 
+            is_partial=False
+        )
+        placeholder.pyplot(fig)
+        plt.close('all')
+    else:
+        # Tampilan mode manual berdasarkan slider sudut dan slider detektor t
+        idx_sudut = int((sudut_aktif / sudut_maksimal) * jumlah_sudut)
+        idx_sudut = min(idx_sudut, jumlah_sudut - 1)
+        fig, profil_1d, sudut_sekarang = render_scan_frame(
+            idx_sudut, 
+            active_t=detektor_t_manual, 
+            is_partial=False
+        )
         placeholder.pyplot(fig)
         plt.close('all')
     else:
