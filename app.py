@@ -17,7 +17,7 @@ st.set_page_config(
 
 plt.style.use('dark_background')
 
-# Header Utama Aplikasi
+# Header Utama
 st.markdown("<h1 style='text-align: center; color: #00e5ff; margin-bottom: 0px;'>Simulator Praktikum Pencitraan Biomedik</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align: center; color: #ffffff; margin-top: 0px;'>Modul Pembelajaran Interaktif CT-Scan</h3>", unsafe_allow_html=True)
 st.write("---")
@@ -63,7 +63,7 @@ if menu_terpilih == "📖 Panduan & Teori Dasar":
         """)
 
 # ---------------------------------------------------------
-# HALAMAN 1: MODUL 1 (EXACT MATHEMATICAL GEOMETRY ALIGNMENT)
+# HALAMAN 1: MODUL 1
 # ---------------------------------------------------------
 elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     st.subheader("Modul 1: Akuisisi Data Sinar-X & Pembentukan Sinogram")
@@ -91,8 +91,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     
     max_val_slider = max(1, int(sudut_maksimal - 1))
     sudut_aktif = st.sidebar.slider("Sudut Manual (°)", min_value=0, max_value=max_val_slider, value=0, step=1, key="k_angle_manual")
-    
-    # Slider Posisi Detektor t
     detektor_t_manual = st.sidebar.slider("Posisi Detektor t (Posisi Sinar)", min_value=0, max_value=159, value=80, step=1, key="k_t_manual")
 
     # ------------------ GENERASI PHANTOM ------------------
@@ -103,7 +101,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         
         if tipe == "Titik Tunggal (Off-Center Dot)":
             y, x = np.ogrid[-center:N-center, -center:N-center]
-            # Off-center dot diletakkan pada posisi relatif (x=+25, y=+20)
             mask = (x - 25)**2 + (y - 20)**2 <= 5**2
             img[mask] = 1.0
         elif tipe == "Shepp-Logan (Anatomi Otak)":
@@ -143,7 +140,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     def clamp(n, minn, maxn):
         return max(minn, min(n, maxn))
 
-    # ------------------ FUNGSI RENDER BEAM SWEEP SINKRON 100% ------------------
+    # ------------------ FUNGSI RENDER PLOT ------------------
     def render_scan_frame(curr_idx, active_t, is_partial=False):
         sudut_sekarang = theta[curr_idx]
         profil_1d = sinogram_full[:, curr_idx]
@@ -159,25 +156,19 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         for ax in [ax1, ax2, ax3]:
             ax.set_facecolor('#161b22')
 
-        # ---------------- Panel 1: Sinar-X (Koreksi Geometri Radon Eksak) ----------------
+        # ---------------- Panel 1 ----------------
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax1.imshow(image, cmap='bone', origin='lower')
         
         rad = np.deg2rad(sudut_sekarang)
-        
-        # Vektor normal (arah sumbu detektor t)
         norm_x = np.cos(rad)
         norm_y = np.sin(rad)
-        
-        # Vektor arah garis sinar-X
         dir_x = -np.sin(rad)
         dir_y = np.cos(rad)
         
-        # Koreksi Offset Detektor t (skimage radon meletakkan t_center di tengah array)
         t_center = (sinogram_full.shape[0] - 1) / 2.0
         t_offset = active_t - t_center
         
-        # Titik pusat garis pemindaian pada detektor t
         x0 = center + t_offset * norm_x
         y0 = center + t_offset * norm_y
         
@@ -185,7 +176,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         x_main = [x0 - length * dir_x, x0 + length * dir_x]
         y_main = [y0 - length * dir_y, y0 + length * dir_y]
         
-        # Cek nilai atenuasi fisis pada posisi active_t ini
         val_at_t = profil_1d[clamp(int(active_t), 0, len(profil_1d)-1)]
         is_hit = val_at_t > 0.05
         line_color = '#ff1744' if is_hit else '#00e5ff'
@@ -198,104 +188,9 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         ax1.legend(loc='upper right', fontsize=8)
         ax1.set_axis_off()
 
-        # ---------------- Panel 2: Profil Proyeksi 1D ----------------
+        # ---------------- Panel 2 ----------------
         ax2.set_title(f"2. Profil Proyeksi 1D ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax2.plot(profil_1d, color='#00e5ff', linewidth=1.8)
         ax2.fill_between(range(len(profil_1d)), profil_1d, color='#00e5ff', alpha=0.2)
         
-        # Garis merah vertikal bergerak tepat pada indeks active_t
         ax2.axvline(x=active_t, color=line_color, linestyle='--', linewidth=1.5, alpha=0.9, label=f'Posisi Beam t={active_t}')
-        ax2.legend(loc='upper right', fontsize=8)
-        
-        ax2.set_xlabel("Posisi Detektor (t)", color='white', fontsize=9)
-        ax2.set_ylabel("Jumlah Atenuasi", color='white', fontsize=9)
-        ax2.set_xlim(0, len(profil_1d))
-        ax2.set_ylim(0, max_attenuation)
-        ax2.grid(True, linestyle=':', alpha=0.3)
-        ax2.tick_params(colors='white', labelsize=8)
-
-        # ---------------- Panel 3: Sinogram Akumulatif ----------------
-        ax3.set_title(f"3. Sinogram Akumulatif (0–{sudut_maksimal}°)", color='#00e5ff', fontsize=11, fontweight='bold')
-        ax3.imshow(sino_display, cmap='bone', extent=(0, sudut_maksimal, 0, sino_display.shape[0]), 
-                   aspect='auto', interpolation='nearest', vmin=0, vmax=float(np.max(sinogram_full)), origin='lower')
-        
-        ax3.axvline(x=sudut_sekarang, color='#ff1744', linewidth=1.5, linestyle='--', label=f'Sudut {sudut_sekarang:.1f}°')
-        ax3.scatter([sudut_sekarang], [active_t], color='#ffea00', s=50, zorder=5)
-        
-        ax3.set_xlim(0, sudut_maksimal)
-        ax3.set_ylim(0, sino_display.shape[0])
-        ax3.set_xlabel(r"Sudut Proyeksi $\theta$ (°)", color='white', fontsize=9)
-        ax3.set_ylabel("Posisi Detektor (t)", color='white', fontsize=9)
-        ax3.tick_params(colors='white', labelsize=8)
-
-        plt.tight_layout()
-        return fig, profil_1d, sudut_sekarang
-
-        # ------------------ EXECUTION ANIMASI / MANUAL ------------------
-        placeholder = st.empty()
-    
-        if btn_start:
-            # Animasi 1: Menyapu sudut theta secara bertahap
-            # Posisi active_t MURNI menggunakan nilai dari slider detektor_t_manual
-            step_angle = max(1, jumlah_sudut // 30)
-            for i in range(0, jumlah_sudut, step_angle):
-                fig, profil_1d, sudut_sekarang = render_scan_frame(
-                    i, 
-                    active_t=detektor_t_manual,  # Murni mengikuti slider detektor, tidak memaksa argmax/peak
-                    is_partial=True
-                )
-                placeholder.pyplot(fig)
-                plt.close('all')
-                time.sleep(0.01)
-                
-            fig, profil_1d, sudut_sekarang = render_scan_frame(
-                jumlah_sudut - 1, 
-                active_t=detektor_t_manual, 
-                is_partial=False
-            )
-            placeholder.pyplot(fig)
-            plt.close('all')
-        else:
-            # Tampilan mode manual berdasarkan slider sudut dan slider detektor t
-            idx_sudut = int((sudut_aktif / sudut_maksimal) * jumlah_sudut)
-            idx_sudut = min(idx_sudut, jumlah_sudut - 1)
-            fig, profil_1d, sudut_sekarang = render_scan_frame(
-                idx_sudut, 
-                active_t=detektor_t_manual, 
-                is_partial=False
-            )
-            placeholder.pyplot(fig)
-            plt.close('all')
-
-    # ------------------ METRIK & EXPORT ------------------
-    st.write("---")
-    st.markdown("### 📊 Analisis Data Proyeksi & Unduh Hasil")
-    
-    val_at_t = profil_1d[clamp(detektor_t_manual, 0, len(profil_1d)-1)]
-    col_a1, col_a2, col_a3 = st.columns(3)
-    col_a1.metric(label="Sudut Aktif Saat Ini", value=f"{sudut_sekarang:.1f}°")
-    col_a2.metric(label=f"Atenuasi pada t={detektor_t_manual}", value=f"{val_at_t:.2f}")
-    col_a3.metric(label="Total Atenuasi Sudut Ini", value=f"{np.sum(profil_1d):.1f}")
-
-    buffer = io.StringIO()
-    np.savetxt(buffer, sinogram_full, delimiter=",")
-    csv_bytes = buffer.getvalue()
-
-    st.download_button(
-        label="💾 Unduh Data Sinogram Lengkap (CSV)",
-        data=csv_bytes,
-        file_name=f"sinogram_{jenis_phantom.split()[0].lower()}.csv",
-        mime="text/csv",
-        key="k_download_csv"
-    )
-
-# ---------------------------------------------------------
-# HALAMAN 2 & 3
-# ---------------------------------------------------------
-elif menu_terpilih == "🧩 Modul 2: Rekonstruksi 2D (SBP vs FBP)":
-    st.subheader("Modul 2: Rekonstruksi Citra 2D (SBP vs FBP)")
-    st.info("🚧 Modul ini sedang dalam tahap pengembangan.")
-
-elif menu_terpilih == "🎨 Modul 3: Manipulasi & Visualisasi":
-    st.subheader("Modul 3: Manipulasi & Visualisasi Citra CT-Scan")
-    st.info("🚧 Modul ini sedang dalam tahap pengembangan.")
