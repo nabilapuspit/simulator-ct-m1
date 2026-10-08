@@ -62,7 +62,7 @@ if menu_terpilih == "📖 Panduan & Teori Dasar":
         """)
 
 # ---------------------------------------------------------
-# HALAMAN 1: MODUL 1 (EXACT GEOMETRY MATCHING WITH VIDEO)
+# HALAMAN 1: MODUL 1 (EXACT MATCHING WITH YOUTUBE ANIMATION)
 # ---------------------------------------------------------
 elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     st.subheader("Modul 1: Akuisisi Data Sinar-X & Pembentukan Sinogram")
@@ -72,7 +72,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     
     jenis_phantom = st.sidebar.selectbox(
         "Pilih Objek / Phantom", 
-        options=["Shepp-Logan (Anatomi Otak)", "Titik Tunggal (Off-Center Dot)", "Dua Titik (Multi-Dot)", "Lingkaran Konsentris"]
+        options=["Titik Tunggal (Off-Center Dot)", "Shepp-Logan (Anatomi Otak)", "Dua Titik (Multi-Dot)", "Lingkaran Konsentris"]
     )
     
     jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=10, max_value=360, value=180, step=10)
@@ -95,18 +95,18 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         img = np.zeros((N, N))
         center = N // 2
         
-        if tipe == "Shepp-Logan (Anatomi Otak)":
+        if tipe == "Titik Tunggal (Off-Center Dot)":
+            y, x = np.ogrid[-center:N-center, -center:N-center]
+            # Off-center dot pada koordinat cartesian (x=+30, y=+20)
+            mask = (x - 30)**2 + (y - 20)**2 <= 5**2
+            img[mask] = 1.0
+        elif tipe == "Shepp-Logan (Anatomi Otak)":
             raw_img = shepp_logan_phantom()
             img = rescale(raw_img, scale=N/raw_img.shape[0], mode='reflect', channel_axis=None)
-        elif tipe == "Titik Tunggal (Off-Center Dot)":
-            y, x = np.ogrid[-center:N-center, -center:N-center]
-            # Offset x=+25 (kanan), y=-20 (atas dalam koordinat cartesian, bawah di matrix)
-            mask = (x - 25)**2 + (y - 20)**2 <= 4**2
-            img[mask] = 1.0
         elif tipe == "Dua Titik (Multi-Dot)":
             y, x = np.ogrid[-center:N-center, -center:N-center]
-            mask1 = (x - 25)**2 + (y - 20)**2 <= 4**2
-            mask2 = (x + 20)**2 + (y + 25)**2 <= 4**2
+            mask1 = (x - 30)**2 + (y - 20)**2 <= 5**2
+            mask2 = (x + 25)**2 + (y + 25)**2 <= 5**2
             img[mask1] = 1.0
             img[mask2] = 0.7
         elif tipe == "Lingkaran Konsentris":
@@ -131,14 +131,14 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         noise = np.random.normal(0, level_noise * 0.1, sinogram_full.shape)
         sinogram_full = np.clip(sinogram_full + noise, 0, None)
 
-    max_attenuation = np.max(sinogram_full) * 1.1 if np.max(sinogram_full) > 0 else 10.0
+    max_attenuation = np.max(sinogram_full) * 1.15 if np.max(sinogram_full) > 0 else 10.0
 
-    # ------------------ FUNGSI RENDER PLOT STABIL & SINKRON EXACT ------------------
+    # ------------------ FUNGSI RENDER PLOT PRESISI ------------------
     def render_scan_frame(curr_idx, is_partial=False):
         sudut_sekarang = theta[curr_idx]
         profil_1d = sinogram_full[:, curr_idx]
         
-        # Matrix sinogram parsial akumulatif
+        # Matrix sinogram akumulatif
         sino_display = np.zeros_like(sinogram_full)
         if is_partial:
             sino_display[:, :curr_idx+1] = sinogram_full[:, :curr_idx+1]
@@ -150,52 +150,59 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         for ax in [ax1, ax2, ax3]:
             ax.set_facecolor('#161b22')
 
-        # ---------------- Panel 1: Sinar-X (Rotasi Geometri Eksak Radon) ----------------
+        # ---------------- Panel 1: Sinar-X & Geometri Paralel ----------------
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
-        ax1.imshow(image, cmap='bone', origin='lower') # origin='lower' agar cartesian y-up sesuai Radon
+        # PENTING: origin='lower' agar selaras dengan koordinat Radon (Y-up)
+        ax1.imshow(image, cmap='bone', origin='lower')
         
         rad = np.deg2rad(sudut_sekarang)
         
-        # Pada Radon scikit-image (origin='lower'):
-        # Garis integrasi proyeksi untuk sudut theta membentuk sudut (theta + 90) terhadap sumbu X
-        # Sumbu detektor t berarah (cos(theta), sin(theta))
+        # Arah garis berkas sinar-X (tegak lurus terhadap garis detektor)
+        dir_x = -np.sin(rad)
+        dir_y = np.cos(rad)
         
-        # Temukan nilai t_peak (posisi puncak atenuasi utama)
+        # Arah sumbu detektor t
+        norm_x = np.cos(rad)
+        norm_y = np.sin(rad)
+        
+        length = center * 1.3
+        
+        # 1. Gambar beberapa garis berkas paralel tipis (Parallel Rays)
+        offsets = np.linspace(-center*0.8, center*0.8, 7)
+        for off in offsets:
+            x_c = center + off * norm_x
+            y_c = center + off * norm_y
+            ax1.plot([x_c - length * dir_x, x_c + length * dir_x],
+                     [y_c - length * dir_y, y_c + length * dir_y],
+                     color='#ff1744', linewidth=0.7, alpha=0.35, linestyle=':')
+
+        # 2. Gambar Garis Berkas Radiasi Aktif (Melintasi Peak / Sumbu Utama)
         if np.max(profil_1d) > 0.05:
             idx_peak = np.argmax(profil_1d)
         else:
             idx_peak = int(center)
             
         t_offset = idx_peak - center
+        x0 = center + t_offset * norm_x
+        y0 = center + t_offset * norm_y
         
-        # Garis sinar-X memotong sumbu detektor t pada t_offset
-        # Titik potong pada detektor (x0, y0)
-        x0 = center + t_offset * np.cos(rad)
-        y0 = center + t_offset * np.sin(rad)
+        x_main = [x0 - length * dir_x, x0 + length * dir_x]
+        y_main = [y0 - length * dir_y, y0 + length * dir_y]
         
-        # Vektor arah sinar-X tegak lurus sumbu detektor
-        dx = -np.sin(rad)
-        dy = np.cos(rad)
-        
-        length = center * 1.3
-        x_line = [x0 - length * dx, x0 + length * dx]
-        y_line = [y0 - length * dy, y0 + length * dy]
-        
-        # Plot Garis Berkas Sinar-X
-        ax1.plot(x_line, y_line, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Radiasi Aktif')
-        ax1.scatter([x_line[1]], [y_line[1]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
+        ax1.plot(x_main, y_main, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Radiasi Aktif')
+        ax1.scatter([x_main[1]], [y_main[1]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
         
         ax1.set_xlim(0, image.shape[1])
         ax1.set_ylim(0, image.shape[0])
         ax1.legend(loc='upper right', fontsize=8)
         ax1.set_axis_off()
 
-        # ---------------- Panel 2: Profil 1D (Terisi Realtime) ----------------
+        # ---------------- Panel 2: Profil Proyeksi 1D ----------------
         ax2.set_title(f"2. Profil Proyeksi 1D ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax2.plot(profil_1d, color='#00e5ff', linewidth=1.8)
         ax2.fill_between(range(len(profil_1d)), profil_1d, color='#00e5ff', alpha=0.2)
         
-        # Penanda garis merah putus-putus posisi puncak proyeksi
+        # Penanda garis merah putus-putus pada posisi peak
         if np.max(profil_1d) > 0.05:
             ax2.axvline(x=idx_peak, color='#ff1744', linestyle='--', linewidth=1.2, alpha=0.8, label='Posisi Peak')
         
@@ -206,7 +213,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         ax2.grid(True, linestyle=':', alpha=0.3)
         ax2.tick_params(colors='white', labelsize=8)
 
-        # ---------------- Panel 3: Sinogram (Akumulasi Realtime) ----------------
+        # ---------------- Panel 3: Sinogram Akumulatif ----------------
         ax3.set_title(f"3. Sinogram Akumulatif (0–{sudut_maksimal}°)", color='#00e5ff', fontsize=11, fontweight='bold')
         ax3.imshow(sino_display, cmap='bone', extent=(0, sudut_maksimal, 0, sino_display.shape[0]), 
                    aspect='auto', interpolation='nearest', vmin=0, vmax=np.max(sinogram_full), origin='lower')
