@@ -1,1517 +1,1265 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-
 from skimage.data import shepp_logan_phantom
-from skimage.transform import rescale
-from scipy.ndimage import map_coordinates
-
-import io
+from skimage.transform import resize, radon, iradon
 import time
 
 
 # ============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
-    page_title="Simulator Praktikum Pencitraan Biomedik - CT-Scan",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Virtual CT-Scan Practicum",
+    page_icon="🩻",
+    layout="wide"
 )
 
-plt.style.use("dark_background")
-
 
 # ============================================================
-# HEADER
+# TITLE
 # ============================================================
+
+st.title("🩻 Virtual CT-Scan Practicum")
 
 st.markdown(
     """
-    <h1 style="text-align:center; color:#5edcff;">
-        🩻 Modul Pembelajaran Interaktif CT-Scan
-    </h1>
-    <p style="text-align:center; color:#cccccc; font-size:16px;">
-        Simulasi Akuisisi Proyeksi, Atenuasi Sinar-X, dan Pembentukan Sinogram
-    </p>
-    """,
-    unsafe_allow_html=True
+    **Virtual CT-Scan Simulator**
+
+    Simulasi sederhana prinsip **parallel-beam CT**:
+    
+    **Phantom → X-ray Beam → Attenuation → Projection → Sinogram**
+    """
 )
 
 
 # ============================================================
-# MAIN MENU
+# SIDEBAR MENU
 # ============================================================
 
-menu_terpilih = st.radio(
-    "Pilih Modul Pembelajaran",
+st.sidebar.title("📚 Menu")
+
+menu = st.sidebar.radio(
+    "Pilih Modul:",
     [
-        "📖 Panduan & Teori Dasar",
-        "🔬 Modul 1: Akuisisi & Sinogram",
-        "🧩 Modul 2: Rekonstruksi 2D (SBP vs FBP)",
-        "🎨 Modul 3: Manipulasi & Visualisasi"
-    ],
-    horizontal=True
+        "📖 Theory",
+        "🔬 Module 1 — CT Acquisition",
+        "🔄 Module 2 — SBP vs FBP",
+        "🎨 Module 3 — Manipulation & Visualization"
+    ]
 )
 
 
 # ============================================================
-# PAGE 0
-# PANDUAN & TEORI DASAR
+# COMMON FUNCTIONS
 # ============================================================
 
-if menu_terpilih == "📖 Panduan & Teori Dasar":
+@st.cache_data
+def create_shepp_logan(size=128):
 
-    st.markdown("## 📖 Panduan & Teori Dasar CT-Scan")
+    phantom = shepp_logan_phantom()
 
-    st.markdown(
-        """
-        ### 1. Prinsip Dasar CT-Scan
-
-        Pada CT-Scan, sinar-X melewati objek dari berbagai sudut.
-        Ketika sinar-X melewati material, intensitas sinar mengalami
-        atenuasi.
-
-        Secara sederhana:
-
-        $$
-        I = I_0 e^{-\\int_L \\mu(x,y)\\,dl}
-        $$
-
-        dengan:
-
-        - $I_0$ = intensitas sinar-X sebelum melewati objek
-        - $I$ = intensitas sinar-X setelah melewati objek
-        - $\\mu(x,y)$ = koefisien atenuasi linear
-        - $L$ = lintasan sinar-X
-
-        Setelah dilakukan transformasi logaritmik:
-
-        $$
-        p(t,\\theta)
-        =
-        -\\ln\\left(\\frac{I}{I_0}\\right)
-        =
-        \\int_L \\mu(x,y)\\,dl
-        $$
-
-        Nilai $p(t,\\theta)$ disebut sebagai **projection data**.
-        """
+    phantom = resize(
+        phantom,
+        (size, size),
+        anti_aliasing=True
     )
 
-    st.markdown("---")
+    return phantom
 
-    st.markdown(
-        """
-        ### 2. Beam dan Projection
 
-        Pada satu sudut $\\theta$, detector menerima sinar-X pada
-        berbagai posisi detector $t$.
+def create_dot_phantom(
+    size=128,
+    x0=25,
+    y0=20,
+    radius=5,
+    attenuation=1.0
+):
 
-        Setiap posisi $t$ merepresentasikan satu lintasan sinar-X.
+    y, x = np.mgrid[
+        -size / 2:size / 2,
+        -size / 2:size / 2
+    ]
 
-        Jika lintasan melewati objek:
+    phantom = np.zeros((size, size))
 
-        $$
-        p(t,\\theta) > 0
-        $$
+    mask = (
+        (x - x0) ** 2 +
+        (y - y0) ** 2
+    ) <= radius ** 2
 
-        Jika lintasan tidak melewati objek:
+    phantom[mask] = attenuation
 
-        $$
-        p(t,\\theta) = 0
-        $$
+    return phantom
 
-        Dengan demikian, projection 1D merupakan kumpulan nilai
-        atenuasi dari seluruh lintasan sinar-X pada satu sudut.
-        """
-    )
 
-    st.markdown("---")
+def calculate_dot_projection(
+    detector_positions,
+    theta_deg,
+    x0,
+    y0,
+    radius,
+    attenuation
+):
 
-    st.markdown(
-        """
-        ### 3. Mengapa Titik Off-Center Menghasilkan Sinusoid?
+    """
+    Analytical projection of a circular object.
 
-        Misalkan sebuah titik pada phantom berada pada koordinat:
+    Parallel beam geometry:
 
-        $$
-        (x_0,y_0)
-        $$
+        t = x cos(theta) + y sin(theta)
 
-        Posisi proyeksi titik tersebut pada detector mengikuti:
+    The X-ray beam intersects the circular object when:
 
-        $$
-        \\boxed{
-        t(\\theta)
-        =
-        x_0\\cos\\theta
+        |t - t0| < radius
+
+    where:
+
+        t0 = x0 cos(theta) + y0 sin(theta)
+
+    Projection value is proportional to
+    the chord length through the circle.
+    """
+
+    theta = np.deg2rad(theta_deg)
+
+    t0 = (
+        x0 * np.cos(theta)
         +
-        y_0\\sin\\theta
-        }
-        $$
-
-        Ketika $\\theta$ berubah, nilai $t$ berubah secara sinusoidal.
-
-        Karena setiap projection pada setiap sudut dimasukkan ke dalam
-        sinogram, lintasan titik tersebut akan terlihat sebagai
-        pola sinusoidal.
-        """
+        y0 * np.sin(theta)
     )
 
-    st.markdown("---")
+    distance = np.abs(
+        detector_positions - t0
+    )
+
+    projection = np.zeros_like(
+        detector_positions,
+        dtype=float
+    )
+
+    inside = distance < radius
+
+    projection[inside] = (
+        2
+        *
+        np.sqrt(
+            radius ** 2
+            -
+            distance[inside] ** 2
+        )
+        *
+        attenuation
+    )
+
+    return projection, t0
+
+
+def create_sinogram_dot(
+    detector_positions,
+    theta_array,
+    x0,
+    y0,
+    radius,
+    attenuation,
+    noise_level=0
+):
+
+    sinogram = []
+
+    for theta in theta_array:
+
+        projection, _ = calculate_dot_projection(
+            detector_positions,
+            theta,
+            x0,
+            y0,
+            radius,
+            attenuation
+        )
+
+        if noise_level > 0:
+
+            noise = np.random.normal(
+                0,
+                noise_level,
+                projection.shape
+            )
+
+            projection = projection + noise
+            projection = np.clip(
+                projection,
+                0,
+                None
+            )
+
+        sinogram.append(projection)
+
+    return np.array(sinogram)
+
+
+def draw_beam(
+    ax,
+    theta_deg,
+    detector_t,
+    beam_length=150
+):
+
+    """
+    Draw a parallel X-ray beam.
+
+    Geometry:
+
+        x cos(theta) + y sin(theta) = t
+
+    """
+
+    theta = np.deg2rad(theta_deg)
+
+    normal = np.array([
+        np.cos(theta),
+        np.sin(theta)
+    ])
+
+    direction = np.array([
+        -np.sin(theta),
+        np.cos(theta)
+    ])
+
+    center = detector_t * normal
+
+    p1 = (
+        center
+        -
+        beam_length * direction
+    )
+
+    p2 = (
+        center
+        +
+        beam_length * direction
+    )
+
+    ax.plot(
+        [p1[0], p2[0]],
+        [p1[1], p2[1]],
+        color="red",
+        linewidth=2.5,
+        label="X-ray Beam"
+    )
+
+
+def setup_image_axis(ax, size=128):
+
+    ax.set_xlim(
+        -size / 2,
+        size / 2
+    )
+
+    ax.set_ylim(
+        -size / 2,
+        size / 2
+    )
+
+    ax.set_aspect("equal")
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+
+    ax.grid(
+        alpha=0.2
+    )
+
+
+# ============================================================
+# THEORY
+# ============================================================
+
+if menu == "📖 Theory":
+
+    st.header("📖 CT-Scan Theory")
+
+    st.subheader("1. Basic CT Acquisition")
 
     st.markdown(
         """
-        ### 4. Urutan Proses pada Simulator
-
-        Simulator ini menggunakan urutan:
-
+        Pada CT, objek dipindai dari berbagai arah menggunakan sinar-X.
+        Untuk simulasi ini digunakan pendekatan **parallel-beam geometry**.
+        
+        Alur dasar simulasi:
+        
         **Phantom**
-
         ↓
-
         **X-ray Beam**
-
         ↓
-
-        **Interaksi dengan Phantom**
-
+        **Attenuation**
         ↓
-
-        **Line Integral Attenuation**
-
+        **Projection**
         ↓
-
-        **1D Projection**
-
-        ↓
-
         **Sinogram**
+        ↓
+        **Reconstruction**
+        """
+    )
 
-        Dengan demikian, sinogram tidak hanya ditampilkan sebagai
-        gambar akhir, tetapi dibentuk secara bertahap selama proses
-        simulasi akuisisi.
+    st.divider()
+
+    st.subheader("2. Projection")
+
+    st.latex(
+        r"""
+        p(t,\theta)
+        =
+        \int_L \mu(x,y)\,dl
+        """
+    )
+
+    st.markdown(
+        """
+        Projection merupakan integral koefisien atenuasi sepanjang
+        lintasan sinar-X.
+        """
+    )
+
+    st.divider()
+
+    st.subheader("3. Beer–Lambert Law")
+
+    st.latex(
+        r"""
+        I = I_0 e^{-p}
+        """
+    )
+
+    st.markdown(
+        """
+        atau:
+        """
+    )
+
+    st.latex(
+        r"""
+        p = -\ln\left(\frac{I}{I_0}\right)
+        """
+    )
+
+    st.divider()
+
+    st.subheader("4. Posisi Struktur pada Projection")
+
+    st.latex(
+        r"""
+        t = x\cos(\theta)+y\sin(\theta)
+        """
+    )
+
+    st.markdown(
+        """
+        Untuk sebuah objek kecil pada posisi `(x₀, y₀)`, posisi peak
+        pada projection akan berubah ketika sudut pemindaian berubah.
+        """
+    )
+
+    st.latex(
+        r"""
+        t(\theta)
+        =
+        x_0\cos(\theta)
+        +
+        y_0\sin(\theta)
+        """
+    )
+
+    st.divider()
+
+    st.subheader("5. Sinogram")
+
+    st.markdown(
+        """
+        Projection dari berbagai sudut kemudian disusun menjadi
+        **sinogram**.
+        
+        Sumbu:
+        
+        - Horizontal → posisi detector `t`
+        - Vertikal → sudut `θ`
+        
+        Sebuah objek yang berada di luar pusat rotasi akan menghasilkan
+        pola sinusoidal pada sinogram.
+        """
+    )
+
+    st.latex(
+        r"""
+        t(\theta)
+        =
+        x_0\cos(\theta)
+        +
+        y_0\sin(\theta)
         """
     )
 
 
 # ============================================================
-# PAGE 1
-# MODULE 1 — AKUISISI & SINOGRAM
+# MODULE 1
 # ============================================================
 
-elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
+elif menu == "🔬 Module 1 — CT Acquisition":
 
-    # ========================================================
-    # CONSTANTS
-    # ========================================================
+    st.header("🔬 Module 1 — CT Acquisition")
 
-    N = 160
-    IMAGE_CENTER = N / 2.0
+    st.markdown(
+        """
+        Modul ini memperlihatkan hubungan langsung antara:
 
-    # Physical coordinate of the off-center dot
-    OFFCENTER_X = 25.0
-    OFFCENTER_Y = 20.0
-
-    # Radius of dot
-    DOT_RADIUS = 5.0
-
-
-    # ========================================================
-    # SIDEBAR
-    # ========================================================
-
-    st.sidebar.header("⚙️ 1. Geometri Pemindaian")
-
-    jenis_phantom = st.sidebar.selectbox(
-        "Pilih Objek / Phantom",
-        [
-            "Titik Tunggal (Off-Center Dot)",
-            "Shepp-Logan (Anatomi Otak)",
-            "Dua Titik (Multi-Dot)",
-            "Lingkaran Konsentris"
-        ]
+        **Phantom → Beam → Projection → Sinogram**
+        """
     )
 
-    jumlah_sudut = st.sidebar.slider(
-        "Jumlah Proyeksi (Sampling Sudut)",
-        min_value=10,
-        max_value=360,
-        value=180,
-        step=10
-    )
+    # --------------------------------------------------------
+    # DEFAULT PARAMETERS
+    # --------------------------------------------------------
 
-    sudut_maksimal = st.sidebar.slider(
-        "Rentang Sudut Total (°)",
-        min_value=10,
-        max_value=360,
-        value=180,
-        step=10
-    )
+    IMAGE_SIZE = 128
 
+    detector_positions = np.linspace(
+        -64,
+        64,
+        257
+    )
 
     # ========================================================
-    # BEAM MODE
+    # TOP SECTION — ANIMATION
     # ========================================================
 
-    st.sidebar.header("🎯 2. Kontrol Beam")
+    st.subheader("🎬 A. Animasi Pemindaian CT")
 
-    mode_beam = st.sidebar.radio(
-        "Mode Posisi Beam",
-        [
-            "Otomatis: Beam Mengikuti Titik",
-            "Manual: Geser Beam"
-        ]
+    st.info(
+        """
+        Animasi menggunakan interval sudut **10°**:
+        
+        0° → 10° → 20° → ... → 170°
+        
+        Total = **18 projection views**.
+        """
     )
 
+    animation_col1, animation_col2 = st.columns(
+        [1, 4]
+    )
 
-    if mode_beam == "Manual: Geser Beam":
+    with animation_col1:
 
-        detector_t_manual = st.sidebar.slider(
-            "Posisi Detector t",
-            min_value=-80.0,
-            max_value=80.0,
-            value=0.0,
-            step=0.5
+        start_animation = st.button(
+            "▶️ Mulai Scan",
+            type="primary",
+            use_container_width=True
+        )
+
+        animation_speed = st.slider(
+            "Kecepatan animasi",
+            min_value=0.05,
+            max_value=0.50,
+            value=0.15,
+            step=0.05
+        )
+
+    with animation_col2:
+
+        st.markdown(
+            """
+            **Interpretasi animasi**
+            
+            Setiap frame menunjukkan satu projection pada satu sudut.
+            Beam merah ditempatkan pada detector position yang melewati
+            struktur objek.
+            
+            Peak pada projection dan titik pada sinogram harus berada
+            pada posisi yang sama.
+            """
+        )
+
+    # --------------------------------------------------------
+    # FIXED ANIMATION PHANTOM
+    # --------------------------------------------------------
+
+    animation_x0 = 25
+    animation_y0 = 20
+    animation_radius = 6
+    animation_attenuation = 1.0
+
+    animation_theta = np.arange(
+        0,
+        180,
+        10
+    )
+
+    animation_phantom = create_dot_phantom(
+        size=IMAGE_SIZE,
+        x0=animation_x0,
+        y0=animation_y0,
+        radius=animation_radius,
+        attenuation=animation_attenuation
+    )
+
+    animation_sinogram = np.zeros(
+        (
+            len(animation_theta),
+            len(detector_positions)
+        )
+    )
+
+    # --------------------------------------------------------
+    # PLACEHOLDER
+    # --------------------------------------------------------
+
+    animation_placeholder = st.empty()
+
+    if start_animation:
+
+        for frame_idx, theta in enumerate(
+            animation_theta
+        ):
+
+            projection, active_t = (
+                calculate_dot_projection(
+                    detector_positions,
+                    theta,
+                    animation_x0,
+                    animation_y0,
+                    animation_radius,
+                    animation_attenuation
+                )
+            )
+
+            animation_sinogram[
+                frame_idx,
+                :
+            ] = projection
+
+            # ------------------------------------------------
+            # CREATE FIGURE
+            # ------------------------------------------------
+
+            fig, axes = plt.subplots(
+                1,
+                3,
+                figsize=(18, 5)
+            )
+
+            ax1, ax2, ax3 = axes
+
+            # =================================================
+            # PANEL 1 — PHANTOM + BEAM
+            # =================================================
+
+            ax1.imshow(
+                animation_phantom,
+                cmap="gray",
+                origin="lower",
+                extent=[
+                    -64,
+                    64,
+                    -64,
+                    64
+                ],
+                vmin=0,
+                vmax=1
+            )
+
+            draw_beam(
+                ax1,
+                theta,
+                active_t
+            )
+
+            ax1.scatter(
+                animation_x0,
+                animation_y0,
+                color="yellow",
+                edgecolor="black",
+                s=50,
+                zorder=5
+            )
+
+            ax1.set_title(
+                f"Phantom + X-ray Beam\nθ = {theta}°"
+            )
+
+            setup_image_axis(
+                ax1,
+                IMAGE_SIZE
+            )
+
+            # =================================================
+            # PANEL 2 — PROJECTION
+            # =================================================
+
+            ax2.plot(
+                detector_positions,
+                projection,
+                linewidth=2
+            )
+
+            ax2.axvline(
+                active_t,
+                linestyle="--",
+                linewidth=2
+            )
+
+            ax2.scatter(
+                active_t,
+                np.max(projection),
+                s=70,
+                zorder=5
+            )
+
+            ax2.set_xlabel(
+                "Detector position t"
+            )
+
+            ax2.set_ylabel(
+                "Projection p(t, θ)"
+            )
+
+            ax2.set_title(
+                "Projection Profile"
+            )
+
+            ax2.grid(
+                alpha=0.25
+            )
+
+            # =================================================
+            # PANEL 3 — SINOGRAM
+            # =================================================
+
+            masked_sinogram = np.ma.masked_where(
+                animation_sinogram == 0,
+                animation_sinogram
+            )
+
+            ax3.imshow(
+                masked_sinogram,
+                cmap="gray",
+                origin="lower",
+                aspect="auto",
+                extent=[
+                    detector_positions[0],
+                    detector_positions[-1],
+                    0,
+                    170
+                ]
+            )
+
+            ax3.scatter(
+                active_t,
+                theta,
+                color="red",
+                s=50
+            )
+
+            ax3.set_xlabel(
+                "Detector position t"
+            )
+
+            ax3.set_ylabel(
+                "Projection angle θ"
+            )
+
+            ax3.set_title(
+                "Sinogram"
+            )
+
+            ax3.set_ylim(
+                0,
+                170
+            )
+
+            # =================================================
+            # STATUS
+            # =================================================
+
+            fig.suptitle(
+                (
+                    f"CT Acquisition — "
+                    f"View {frame_idx + 1}/{len(animation_theta)}"
+                    f" | θ = {theta}°"
+                    f" | Active detector t = {active_t:.2f}"
+                ),
+                fontsize=14
+            )
+
+            plt.tight_layout()
+
+            animation_placeholder.pyplot(
+                fig,
+                clear_figure=True
+            )
+
+            plt.close(fig)
+
+            time.sleep(
+                animation_speed
+            )
+
+        st.success(
+            "✅ Pemindaian selesai: 18 projection views dari 0°–170°."
         )
 
     else:
 
-        detector_t_manual = None
-
-
-    # ========================================================
-    # PHYSICS
-    # ========================================================
-
-    st.sidebar.header("📻 3. Kondisi Fisika Sinar-X")
-
-    tambah_noise = st.sidebar.checkbox(
-        "Simulasi Derau Pengukuran"
-    )
-
-    level_noise = 0
-
-    if tambah_noise:
-
-        level_noise = st.sidebar.slider(
-            "Tingkat Noise",
-            min_value=1,
-            max_value=10,
-            value=3,
-            step=1
-        )
-
-
-    # ========================================================
-    # ACQUISITION
-    # ========================================================
-
-    st.sidebar.header("🎬 4. Kontrol Akuisisi")
-
-    btn_start = st.sidebar.button(
-        "▶ Mulai Pemindaian"
-    )
-
-    sudut_aktif = st.sidebar.slider(
-        "Sudut Beam θ (°)",
-        min_value=0.0,
-        max_value=float(max(1, sudut_maksimal - 1)),
-        value=0.0,
-        step=1.0
-    )
-
-
-    # ========================================================
-    # PHANTOM GENERATION
-    # ========================================================
-
-    Y, X = np.indices(
-        (N, N)
-    )
-
-    # Physical coordinates.
-    #
-    # x increases to the right.
-    # y increases upward when displayed with origin="lower".
-
-    x_grid = (
-        X
-        -
-        IMAGE_CENTER
-        +
-        0.5
-    )
-
-    y_grid = (
-        Y
-        -
-        IMAGE_CENTER
-        +
-        0.5
-    )
-
-
-    def generate_phantom(phantom_type):
-
-        image = np.zeros(
-            (N, N),
-            dtype=float
-        )
-
         # ----------------------------------------------------
-        # OFF-CENTER DOT
+        # INITIAL STATIC FRAME
         # ----------------------------------------------------
 
-        if phantom_type == "Titik Tunggal (Off-Center Dot)":
-
-            mask = (
-                (x_grid - OFFCENTER_X) ** 2
-                +
-                (y_grid - OFFCENTER_Y) ** 2
-                <= DOT_RADIUS ** 2
-            )
-
-            image[mask] = 1.0
-
-
-        # ----------------------------------------------------
-        # SHEPP-LOGAN
-        # ----------------------------------------------------
-
-        elif phantom_type == "Shepp-Logan (Anatomi Otak)":
-
-            raw = shepp_logan_phantom()
-
-            image = rescale(
-                raw,
-                scale=N / raw.shape[0],
-                mode="reflect",
-                channel_axis=None
-            )
-
-            image = image / np.max(image)
-
-
-        # ----------------------------------------------------
-        # TWO DOTS
-        # ----------------------------------------------------
-
-        elif phantom_type == "Dua Titik (Multi-Dot)":
-
-            mask1 = (
-                (x_grid - 25) ** 2
-                +
-                (y_grid - 20) ** 2
-                <= DOT_RADIUS ** 2
-            )
-
-            mask2 = (
-                (x_grid + 20) ** 2
-                +
-                (y_grid + 25) ** 2
-                <= DOT_RADIUS ** 2
-            )
-
-            image[mask1] = 1.0
-            image[mask2] = 0.7
-
-
-        # ----------------------------------------------------
-        # CONCENTRIC CIRCLES
-        # ----------------------------------------------------
-
-        elif phantom_type == "Lingkaran Konsentris":
-
-            mask1 = (
-                x_grid ** 2
-                +
-                y_grid ** 2
-                <= 60 ** 2
-            )
-
-            mask2 = (
-                x_grid ** 2
-                +
-                y_grid ** 2
-                <= 35 ** 2
-            )
-
-            mask3 = (
-                x_grid ** 2
-                +
-                y_grid ** 2
-                <= 15 ** 2
-            )
-
-            image[mask1] = 0.3
-            image[mask2] = 0.7
-            image[mask3] = 1.0
-
-        return image
-
-
-    image = generate_phantom(
-        jenis_phantom
-    )
-
-
-    # ========================================================
-    # DETECTOR COORDINATE
-    # ========================================================
-
-    # Physical detector coordinate.
-    #
-    # t = 0 corresponds to the center of rotation.
-
-    detector_t = (
-        np.arange(N)
-        -
-        N / 2
-        +
-        0.5
-    )
-
-
-    # ========================================================
-    # ANGULAR SAMPLING
-    # ========================================================
-
-    theta = np.linspace(
-        0.0,
-        float(sudut_maksimal),
-        int(jumlah_sudut),
-        endpoint=False
-    )
-
-
-    # ========================================================
-    # GEOMETRIC PROJECTION OF A POINT
-    # ========================================================
-
-    def point_projection_t(
-        x0,
-        y0,
-        angle_deg
-    ):
-
-        angle_rad = np.deg2rad(
-            angle_deg
-        )
-
-        return (
-            x0 * np.cos(angle_rad)
-            +
-            y0 * np.sin(angle_rad)
-        )
-
-
-    # ========================================================
-    # BEAM GEOMETRY
-    #
-    # Line:
-    #
-    # x cos(theta) + y sin(theta) = t
-    #
-    # Parameterization:
-    #
-    # x = t cos(theta) - s sin(theta)
-    # y = t sin(theta) + s cos(theta)
-    # ========================================================
-
-    def beam_geometry(
-        angle_deg,
-        t_value
-    ):
-
-        angle_rad = np.deg2rad(
-            angle_deg
-        )
-
-        normal_x = np.cos(
-            angle_rad
-        )
-
-        normal_y = np.sin(
-            angle_rad
-        )
-
-        direction_x = -np.sin(
-            angle_rad
-        )
-
-        direction_y = np.cos(
-            angle_rad
-        )
-
-        # Closest point of beam to center
-        beam_center_x = (
-            t_value
-            *
-            normal_x
-        )
-
-        beam_center_y = (
-            t_value
-            *
-            normal_y
-        )
-
-        return (
-            beam_center_x,
-            beam_center_y,
-            direction_x,
-            direction_y
-        )
-
-
-    # ========================================================
-    # FORWARD PROJECTION
-    #
-    # This explicitly computes:
-    #
-    # p(t,theta) = integral mu(x,y) dl
-    #
-    # instead of using radon() as the primary model.
-    # ========================================================
-
-    @st.cache_data(
-        show_spinner=False
-    )
-    def calculate_forward_projections(
-        image,
-        theta_values,
-        detector_values
-    ):
-
-        image_n = image.shape[0]
-
-        center = image_n / 2.0
-
-        n_detector = len(
-            detector_values
-        )
-
-        n_angles = len(
-            theta_values
-        )
-
-        sinogram = np.zeros(
-            (
-                n_detector,
-                n_angles
-            ),
-            dtype=float
-        )
-
-        # Sampling along each ray.
-        #
-        # The object occupies approximately:
-        # -80 ... +80
-        #
-        # We sample beyond the object so that
-        # the complete line integral is captured.
-
-        s_values = np.linspace(
-            -image_n * 0.9,
-            image_n * 0.9,
-            2 * image_n + 1
-        )
-
-        ds = (
-            s_values[1]
-            -
-            s_values[0]
-        )
-
-
-        # ----------------------------------------------------
-        # LOOP OVER ANGLES
-        # ----------------------------------------------------
-
-        for j, angle_deg in enumerate(
-            theta_values
-        ):
-
-            angle_rad = np.deg2rad(
-                angle_deg
-            )
-
-            cos_theta = np.cos(
-                angle_rad
-            )
-
-            sin_theta = np.sin(
-                angle_rad
-            )
-
-
-            # ------------------------------------------------
-            # LOOP OVER DETECTOR CHANNELS
-            # ------------------------------------------------
-
-            for i, t_value in enumerate(
-                detector_values
-            ):
-
-                # Ray equation
-                x_path = (
-                    t_value * cos_theta
-                    -
-                    s_values * sin_theta
-                )
-
-                y_path = (
-                    t_value * sin_theta
-                    +
-                    s_values * cos_theta
-                )
-
-
-                # Convert physical coordinates
-                # to image array coordinates.
-
-                col = (
-                    x_path
-                    +
-                    center
-                    -
-                    0.5
-                )
-
-                row = (
-                    y_path
-                    +
-                    center
-                    -
-                    0.5
-                )
-
-
-                valid = (
-                    (col >= 0)
-                    &
-                    (col <= image_n - 1)
-                    &
-                    (row >= 0)
-                    &
-                    (row <= image_n - 1)
-                )
-
-
-                if not np.any(valid):
-
-                    continue
-
-
-                coords = np.vstack(
-                    [
-                        row[valid],
-                        col[valid]
-                    ]
-                )
-
-
-                # Bilinear interpolation
-                # of attenuation coefficient.
-
-                attenuation_values = map_coordinates(
-                    image,
-                    coords,
-                    order=1,
-                    mode="constant",
-                    cval=0.0
-                )
-
-
-                # Line integral
-                #
-                # p = integral(mu dl)
-
-                sinogram[
-                    i,
-                    j
-                ] = (
-                    np.sum(
-                        attenuation_values
-                    )
-                    *
-                    ds
-                )
-
-
-        return sinogram
-
-
-    # ========================================================
-    # CALCULATE PROJECTION DATA
-    # ========================================================
-
-    with st.spinner(
-        "Menghitung data projection..."
-    ):
-
-        sinogram_clean = (
-            calculate_forward_projections(
-                image,
+        theta = 0
+
+        projection, active_t = (
+            calculate_dot_projection(
+                detector_positions,
                 theta,
-                detector_t
+                animation_x0,
+                animation_y0,
+                animation_radius,
+                animation_attenuation
             )
         )
 
-
-    # ========================================================
-    # OPTIONAL NOISE
-    # ========================================================
-
-    if tambah_noise:
-
-        rng = np.random.default_rng(
-            42
+        fig, axes = plt.subplots(
+            1,
+            3,
+            figsize=(18, 5)
         )
 
-        noise_sigma = (
-            level_noise
-            *
-            0.02
-            *
-            max(
-                float(
-                    np.max(
-                        sinogram_clean
-                    )
-                ),
-                1e-8
-            )
+        ax1, ax2, ax3 = axes
+
+        # Phantom
+
+        ax1.imshow(
+            animation_phantom,
+            cmap="gray",
+            origin="lower",
+            extent=[
+                -64,
+                64,
+                -64,
+                64
+            ],
+            vmin=0,
+            vmax=1
         )
 
-        sinogram_display = (
-            sinogram_clean
-            +
-            rng.normal(
+        draw_beam(
+            ax1,
+            theta,
+            active_t
+        )
+
+        ax1.scatter(
+            animation_x0,
+            animation_y0,
+            color="yellow",
+            edgecolor="black",
+            s=50
+        )
+
+        ax1.set_title(
+            "Phantom + X-ray Beam"
+        )
+
+        setup_image_axis(
+            ax1,
+            IMAGE_SIZE
+        )
+
+        # Projection
+
+        ax2.plot(
+            detector_positions,
+            projection,
+            linewidth=2
+        )
+
+        ax2.axvline(
+            active_t,
+            linestyle="--",
+            linewidth=2
+        )
+
+        ax2.set_title(
+            "Projection Profile"
+        )
+
+        ax2.set_xlabel(
+            "Detector position t"
+        )
+
+        ax2.set_ylabel(
+            "Projection p(t, θ)"
+        )
+
+        ax2.grid(
+            alpha=0.25
+        )
+
+        # Empty sinogram
+
+        ax3.set_title(
+            "Sinogram — tekan 'Mulai Scan'"
+        )
+
+        ax3.set_xlabel(
+            "Detector position t"
+        )
+
+        ax3.set_ylabel(
+            "Projection angle θ"
+        )
+
+        ax3.set_xlim(
+            -64,
+            64
+        )
+
+        ax3.set_ylim(
+            0,
+            170
+        )
+
+        plt.tight_layout()
+
+        animation_placeholder.pyplot(
+            fig,
+            clear_figure=True
+        )
+
+        plt.close(fig)
+
+    # ========================================================
+    # DIVIDER
+    # ========================================================
+
+    st.divider()
+
+    # ========================================================
+    # LOWER SECTION — INTERACTIVE EXPLORATION
+    # ========================================================
+
+    st.subheader(
+        "🎛️ B. Eksplorasi Interaktif"
+    )
+
+    st.markdown(
+        """
+        Setelah memahami animasi di atas, mahasiswa dapat mengubah
+        parameter pemindaian secara manual dan mengamati bagaimana
+        perubahan tersebut memengaruhi **beam, projection, dan sinogram**.
+        """
+    )
+
+    # --------------------------------------------------------
+    # CONTROLS
+    # --------------------------------------------------------
+
+    control_col1, control_col2, control_col3 = st.columns(
+        3
+    )
+
+    with control_col1:
+
+        st.markdown(
+            "### 🟢 Object"
+        )
+
+        x0 = st.slider(
+            "Posisi X objek",
+            -40,
+            40,
+            25,
+            1
+        )
+
+        y0 = st.slider(
+            "Posisi Y objek",
+            -40,
+            40,
+            20,
+            1
+        )
+
+        radius = st.slider(
+            "Radius objek",
+            2,
+            15,
+            6,
+            1
+        )
+
+        attenuation = st.slider(
+            "Koefisien atenuasi μ",
+            0.1,
+            2.0,
+            1.0,
+            0.1
+        )
+
+    with control_col2:
+
+        st.markdown(
+            "### 🔵 Acquisition"
+        )
+
+        angle_options = list(
+            np.arange(
                 0,
-                noise_sigma,
-                sinogram_clean.shape
+                180,
+                10
             )
         )
 
-        sinogram_display = np.clip(
-            sinogram_display,
+        selected_theta = st.select_slider(
+            "Sudut pemindaian θ",
+            options=angle_options,
+            value=0
+        )
+
+        noise_level = st.slider(
+            "Noise level",
+            0.0,
+            0.5,
+            0.0,
+            0.01
+        )
+
+    with control_col3:
+
+        st.markdown(
+            "### 🔴 Detector"
+
+        )
+
+        detector_t = st.slider(
+            "Posisi detector t",
+            -64.0,
+            64.0,
+            0.0,
+            0.5
+        )
+
+        show_beam = st.checkbox(
+            "Tampilkan X-ray beam",
+            value=True
+        )
+
+        show_object_center = st.checkbox(
+            "Tampilkan posisi objek",
+            value=True
+        )
+
+    # ========================================================
+    # INTERACTIVE CALCULATION
+    # ========================================================
+
+    interactive_phantom = create_dot_phantom(
+        size=IMAGE_SIZE,
+        x0=x0,
+        y0=y0,
+        radius=radius,
+        attenuation=attenuation
+    )
+
+    interactive_projection, physical_t = (
+        calculate_dot_projection(
+            detector_positions,
+            selected_theta,
+            x0,
+            y0,
+            radius,
+            attenuation
+        )
+    )
+
+    # Add noise
+
+    if noise_level > 0:
+
+        np.random.seed(42)
+
+        interactive_projection = (
+            interactive_projection
+            +
+            np.random.normal(
+                0,
+                noise_level,
+                interactive_projection.shape
+            )
+        )
+
+        interactive_projection = np.clip(
+            interactive_projection,
             0,
             None
         )
 
-    else:
-
-        sinogram_display = (
-            sinogram_clean.copy()
-        )
-
-
     # ========================================================
-    # CURRENT ANGLE
+    # MANUAL BEAM PROJECTION
     # ========================================================
 
-    current_angle = float(
-        sudut_aktif
+    manual_distance = np.abs(
+        detector_t - physical_t
     )
 
+    if manual_distance < radius:
 
-    # ========================================================
-    # DETERMINE ACTIVE BEAM t
-    # ========================================================
-
-    if (
-        mode_beam
-        ==
-        "Otomatis: Beam Mengikuti Titik"
-    ):
-
-        # For the off-center dot,
-        # calculate geometric projection.
-
-        if (
-            jenis_phantom
-            ==
-            "Titik Tunggal (Off-Center Dot)"
-        ):
-
-            active_t = point_projection_t(
-                OFFCENTER_X,
-                OFFCENTER_Y,
-                current_angle
-            )
-
-        else:
-
-            # For other phantoms,
-            # use central beam by default.
-
-            active_t = 0.0
-
-    else:
-
-        active_t = float(
-            detector_t_manual
-        )
-
-
-    # ========================================================
-    # CLAMP ACTIVE t
-    # ========================================================
-
-    active_t = float(
-        np.clip(
-            active_t,
-            detector_t[0],
-            detector_t[-1]
-        )
-    )
-
-
-    # ========================================================
-    # FIND NEAREST DETECTOR CHANNEL
-    # ========================================================
-
-    active_detector_idx = int(
-        np.argmin(
-            np.abs(
-                detector_t
+        manual_projection = (
+            2
+            *
+            np.sqrt(
+                radius ** 2
                 -
-                active_t
+                manual_distance ** 2
             )
-        )
-    )
-
-
-    # ========================================================
-    # FIND NEAREST ANGLE INDEX
-    # ========================================================
-
-    active_angle_idx = int(
-        np.argmin(
-            np.abs(
-                theta
-                -
-                current_angle
-            )
-        )
-    )
-
-
-    # ========================================================
-    # CURRENT PROJECTION
-    # ========================================================
-
-    projection_profile = (
-        sinogram_display[
-            :,
-            active_angle_idx
-        ]
-    )
-
-
-    # ========================================================
-    # ACTIVE ATTENUATION
-    # ========================================================
-
-    active_attenuation = float(
-        projection_profile[
-            active_detector_idx
-        ]
-    )
-
-
-    # ========================================================
-    # DETERMINE HIT / MISS
-    # ========================================================
-
-    max_projection = max(
-        float(
-            np.max(
-                sinogram_display
-            )
-        ),
-        1e-8
-    )
-
-    hit_threshold = (
-        max_projection
-        *
-        0.01
-    )
-
-    beam_hits_object = (
-        active_attenuation
-        >
-        hit_threshold
-    )
-
-
-    # ========================================================
-    # STATUS
-    # ========================================================
-
-    if beam_hits_object:
-
-        beam_status = (
-            "🔴 BEAM MENGENAI OBJEK"
+            *
+            attenuation
         )
 
     else:
 
-        beam_status = (
-            "🔵 BEAM TIDAK MENGENAI OBJEK"
-        )
-
+        manual_projection = 0.0
 
     # ========================================================
-    # CALCULATE BEAM GEOMETRY
+    # MANUAL SINOGRAM
     # ========================================================
 
-    (
-        beam_center_x,
-        beam_center_y,
-        direction_x,
-        direction_y
-    ) = beam_geometry(
-        current_angle,
-        active_t
+    manual_theta_array = np.arange(
+        0,
+        180,
+        10
     )
 
-
-    beam_length = (
-        N
-        *
-        0.95
+    manual_sinogram = create_sinogram_dot(
+        detector_positions,
+        manual_theta_array,
+        x0,
+        y0,
+        radius,
+        attenuation,
+        noise_level
     )
-
-    beam_x1 = (
-        beam_center_x
-        -
-        beam_length
-        *
-        direction_x
-    )
-
-    beam_y1 = (
-        beam_center_y
-        -
-        beam_length
-        *
-        direction_y
-    )
-
-    beam_x2 = (
-        beam_center_x
-        +
-        beam_length
-        *
-        direction_x
-    )
-
-    beam_y2 = (
-        beam_center_y
-        +
-        beam_length
-        *
-        direction_y
-    )
-
 
     # ========================================================
-    # STATUS DISPLAY
+    # DISPLAY INTERACTIVE VIEW
     # ========================================================
 
-    if beam_hits_object:
-
-        st.error(
-            "🔴 BEAM MENGENAI OBJEK"
-        )
-
-    else:
-
-        st.info(
-            "🔵 BEAM TIDAK MENGENAI OBJEK"
-        )
-
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        st.metric(
-            "Sudut θ",
-            f"{current_angle:.1f}°"
-        )
-
-    with c2:
-
-        st.metric(
-            "Detector t",
-            f"{active_t:.2f}"
-        )
-
-    with c3:
-
-        st.metric(
-            "Attenuation",
-            f"{active_attenuation:.3f}"
-        )
-
-    with c4:
-
-        st.metric(
-            "Beam",
-            "HIT"
-            if beam_hits_object
-            else "MISS"
-        )
-
-
-    # ========================================================
-    # THREE PANELS
-    # ========================================================
-
-    fig, (
-        ax1,
-        ax2,
-        ax3
-    ) = plt.subplots(
+    fig, axes = plt.subplots(
         1,
         3,
-        figsize=(18, 5.5)
+        figsize=(18, 5)
     )
 
-    fig.patch.set_facecolor(
-        "#0e1117"
-    )
+    ax1, ax2, ax3 = axes
 
-    for ax in [
-        ax1,
-        ax2,
-        ax3
-    ]:
-
-        ax.set_facecolor(
-            "#161b22"
-        )
-
-
-    # ========================================================
-    # PANEL 1
-    # PHANTOM + ACTIVE BEAM
-    # ========================================================
-
-    ax1.set_title(
-        f"1. Pemindaian Sinar-X ({current_angle:.1f}°)",
-        color="#5edcff",
-        fontsize=12,
-        fontweight="bold"
-    )
+    # --------------------------------------------------------
+    # PHANTOM
+    # --------------------------------------------------------
 
     ax1.imshow(
-        image,
-        cmap="bone",
+        interactive_phantom,
+        cmap="gray",
         origin="lower",
         extent=[
-            -N / 2,
-            N / 2,
-            -N / 2,
-            N / 2
-        ]
-    )
-
-
-    # Beam
-
-    beam_color = (
-        "#ff1744"
-        if beam_hits_object
-        else "#00e5ff"
-    )
-
-    ax1.plot(
-        [
-            beam_x1,
-            beam_x2
+            -64,
+            64,
+            -64,
+            64
         ],
-        [
-            beam_y1,
-            beam_y2
-        ],
-        color=beam_color,
-        linewidth=2.5,
-        linestyle="--"
-    )
-
-
-    # Beam center marker
-
-    ax1.scatter(
-        [beam_center_x],
-        [beam_center_y],
-        color="#ffea00",
-        s=45,
-        zorder=6
-    )
-
-
-    # Rotation center
-
-    ax1.scatter(
-        [0],
-        [0],
-        color="#00ff88",
-        s=25,
-        zorder=6
-    )
-
-
-    # If off-center dot is used,
-    # show its theoretical projection coordinate.
-
-    if (
-        jenis_phantom
-        ==
-        "Titik Tunggal (Off-Center Dot)"
-    ):
-
-        theoretical_t = point_projection_t(
-            OFFCENTER_X,
-            OFFCENTER_Y,
-            current_angle
+        vmin=0,
+        vmax=max(
+            attenuation,
+            1
         )
+    )
+
+    if show_beam:
+
+        draw_beam(
+            ax1,
+            selected_theta,
+            detector_t
+        )
+
+    if show_object_center:
 
         ax1.scatter(
-            [OFFCENTER_X],
-            [OFFCENTER_Y],
-            facecolors="none",
-            edgecolors="#ffea00",
-            s=130,
-            linewidths=1.5,
-            zorder=7
+            x0,
+            y0,
+            color="yellow",
+            edgecolor="black",
+            s=60,
+            zorder=5
         )
 
-        # Draw a small normal line from center
-        # to theoretical detector coordinate.
-
-        tx = (
-            theoretical_t
-            *
-            np.cos(
-                np.deg2rad(
-                    current_angle
-                )
-            )
-        )
-
-        ty = (
-            theoretical_t
-            *
-            np.sin(
-                np.deg2rad(
-                    current_angle
-                )
-            )
-        )
-
-        ax1.scatter(
-            [tx],
-            [ty],
-            color="#ffea00",
-            s=20,
-            zorder=7
-        )
-
-
-    ax1.set_xlim(
-        -N / 2,
-        N / 2
+    ax1.set_title(
+        f"Phantom + Beam\nθ = {selected_theta}°"
     )
 
-    ax1.set_ylim(
-        -N / 2,
-        N / 2
+    setup_image_axis(
+        ax1,
+        IMAGE_SIZE
     )
 
-    ax1.set_xlabel(
-        "x"
-    )
-
-    ax1.set_ylabel(
-        "y"
-    )
-
-    ax1.grid(
-        True,
-        alpha=0.12
-    )
-
-
-    # ========================================================
-    # PANEL 2
-    # PROJECTION PROFILE
-    # ========================================================
-
-    ax2.set_title(
-        f"2. Profil Proyeksi 1D ({current_angle:.1f}°)",
-        color="#5edcff",
-        fontsize=12,
-        fontweight="bold"
-    )
+    # --------------------------------------------------------
+    # PROJECTION
+    # --------------------------------------------------------
 
     ax2.plot(
-        detector_t,
-        projection_profile,
-        color="#5edcff",
+        detector_positions,
+        interactive_projection,
         linewidth=2
     )
 
-    ax2.fill_between(
-        detector_t,
-        projection_profile,
-        color="#5edcff",
-        alpha=0.18
-    )
-
-
-    # Active beam detector position
-
     ax2.axvline(
-        x=active_t,
-        color=beam_color,
+        detector_t,
         linestyle="--",
-        linewidth=2.5,
-        label=f"Beam t={active_t:.2f}"
+        linewidth=2
     )
 
+    if np.max(interactive_projection) > 0:
 
-    # Current measurement
-
-    ax2.scatter(
-        [active_t],
-        [active_attenuation],
-        color="#ffea00",
-        s=75,
-        zorder=8,
-        edgecolors="black",
-        linewidths=0.8
-    )
-
-
-    # If automatic point-following mode,
-    # show theoretical projection position.
-
-    if (
-        mode_beam
-        ==
-        "Otomatis: Beam Mengikuti Titik"
-        and
-        jenis_phantom
-        ==
-        "Titik Tunggal (Off-Center Dot)"
-    ):
-
-        theoretical_t = point_projection_t(
-            OFFCENTER_X,
-            OFFCENTER_Y,
-            current_angle
+        ax2.scatter(
+            physical_t,
+            np.max(interactive_projection),
+            s=70,
+            zorder=5
         )
 
-        ax2.axvline(
-            x=theoretical_t,
-            color="#ffea00",
-            linestyle=":",
-            linewidth=1.2,
-            alpha=0.8
-        )
-
-
-    ax2.axhline(
-        0,
-        color="white",
-        alpha=0.25,
-        linewidth=1
-    )
-
-
-    ax2.set_xlim(
-        detector_t[0],
-        detector_t[-1]
-    )
-
-    ax2.set_ylim(
-        0,
-        max(
-            float(
-                np.max(
-                    projection_profile
-                )
-            )
-            *
-            1.15,
-            1.0
-        )
+    ax2.set_title(
+        "Projection Profile"
     )
 
     ax2.set_xlabel(
-        "Posisi Detector t"
+        "Detector position t"
     )
 
     ax2.set_ylabel(
-        "Line Integral Attenuation"
+        "Projection p(t, θ)"
     )
 
     ax2.grid(
-        True,
-        linestyle=":",
         alpha=0.25
     )
 
-    ax2.legend(
-        loc="upper right",
-        fontsize=8
-    )
-
-
-    # ========================================================
-    # PANEL 3
+    # --------------------------------------------------------
     # SINOGRAM
-    # ========================================================
-
-    ax3.set_title(
-        f"3. Sinogram ({sudut_maksimal:.0f}°)",
-        color="#5edcff",
-        fontsize=12,
-        fontweight="bold"
-    )
-
-
-    sinogram_max = max(
-        float(
-            np.max(
-                sinogram_display
-            )
-        ),
-        1e-8
-    )
-
+    # --------------------------------------------------------
 
     ax3.imshow(
-        sinogram_display,
-        cmap="bone",
-        extent=[
-            theta[0],
-            theta[-1]
-            if len(theta) > 1
-            else sudut_maksimal,
-            detector_t[0],
-            detector_t[-1]
-        ],
-        aspect="auto",
-        interpolation="nearest",
+        manual_sinogram,
+        cmap="gray",
         origin="lower",
-        vmin=0,
-        vmax=sinogram_max
+        aspect="auto",
+        extent=[
+            detector_positions[0],
+            detector_positions[-1],
+            0,
+            170
+        ]
     )
-
-
-    # Current angle
-
-    ax3.axvline(
-        current_angle,
-        color="#ff1744",
-        linestyle="--",
-        linewidth=1.8
-    )
-
-
-    # Current beam point in sinogram
 
     ax3.scatter(
-        [current_angle],
-        [active_t],
-        color="#ffea00",
-        s=70,
-        zorder=8,
-        edgecolors="black",
-        linewidths=0.8
+        physical_t,
+        selected_theta,
+        color="red",
+        s=70
     )
 
-
-    ax3.set_xlim(
-        theta[0],
-        theta[-1]
-        if len(theta) > 1
-        else sudut_maksimal
+    ax3.axhline(
+        selected_theta,
+        linestyle="--",
+        linewidth=1
     )
 
-    ax3.set_ylim(
-        detector_t[0],
-        detector_t[-1]
+    ax3.axvline(
+        physical_t,
+        linestyle="--",
+        linewidth=1
+    )
+
+    ax3.set_title(
+        "Sinogram"
     )
 
     ax3.set_xlabel(
-        r"Sudut Proyeksi $\theta$ (°)"
+        "Detector position t"
     )
 
     ax3.set_ylabel(
-        "Posisi Detector t"
+        "Projection angle θ"
     )
 
-
-    # ========================================================
-    # SHOW FIGURE
-    # ========================================================
+    ax3.set_ylim(
+        0,
+        170
+    )
 
     plt.tight_layout()
 
     st.pyplot(
         fig,
-        use_container_width=True
+        clear_figure=True
     )
 
     plt.close(fig)
 
+    # ========================================================
+    # NUMERICAL RESULT
+    # ========================================================
+
+    st.divider()
+
+    result_col1, result_col2, result_col3 = st.columns(
+        3
+    )
+
+    with result_col1:
+
+        st.metric(
+            "Sudut θ",
+            f"{selected_theta}°"
+        )
+
+    with result_col2:
+
+        st.metric(
+            "Posisi struktur t",
+            f"{physical_t:.2f}"
+        )
+
+    with result_col3:
+
+        st.metric(
+            "Measurement beam",
+            f"{manual_projection:.3f}"
+        )
 
     # ========================================================
-    # EDUCATIONAL EXPLANATION
+    # INTERPRETATION
     # ========================================================
 
-    st.markdown("---")
-
-    if beam_hits_object:
+    if manual_projection > 0:
 
         st.success(
             f"""
-            ### 🔴 Beam mengenai phantom
-
-            Pada:
-
-            - Sudut: **θ = {current_angle:.1f}°**
-            - Posisi detector: **t = {active_t:.2f}**
-            - Attenuation: **{active_attenuation:.3f}**
-
-            Beam melewati material phantom sehingga terjadi
-            line integral attenuation.
-
-            $$
-            p(t,\\theta)
-            =
-            \\int_L \\mu(x,y)\\,dl
-            =
-            {active_attenuation:.3f}
-            $$
-
-            Karena attenuation pada posisi beam bernilai tinggi,
-            marker kuning pada **Profil Proyeksi 1D** berada pada
-            bagian peak.
-
-            Titik yang sama juga direpresentasikan oleh marker pada
-            **sinogram**.
+            **Beam mengenai objek.**
+            
+            Pada θ = {selected_theta}°, detector position
+            t = {detector_t:.2f} melewati objek.
+            
+            Nilai projection:
+            
+            **p = {manual_projection:.3f}**
             """
         )
 
@@ -1519,703 +1267,407 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
 
         st.info(
             f"""
-            ### 🔵 Beam tidak mengenai phantom
-
-            Pada:
-
-            - Sudut: **θ = {current_angle:.1f}°**
-            - Posisi detector: **t = {active_t:.2f}**
-            - Attenuation: **{active_attenuation:.3f}**
-
-            Lintasan beam tidak melewati phantom.
-
-            Oleh karena itu:
-
-            $$
-            p(t,\\theta) \\approx 0
-            $$
-
-            Perhatikan bahwa **projection profile secara keseluruhan
-            tidak harus kosong**. Peak dapat tetap muncul pada detector
-            position lain yang dilewati phantom.
-
-            Yang bernilai nol adalah **measurement pada posisi beam
-            yang sedang dipilih**.
+            **Beam tidak mengenai objek.**
+            
+            Pada θ = {selected_theta}°, detector position
+            t = {detector_t:.2f} berada di luar objek.
+            
+            Karena tidak ada material yang dilewati beam,
+            measurement idealnya:
+            
+            **p = 0**
             """
         )
 
+    st.caption(
+        """
+        Catatan: simulasi ini menggunakan model ideal parallel-beam
+        untuk tujuan pembelajaran. Sistem CT klinis menggunakan geometri
+        dan mekanisme akuisisi yang lebih kompleks.
+        """
+    )
 
-    # ========================================================
-    # SPECIAL EXPLANATION FOR POINT PHANTOM
-    # ========================================================
 
-    if (
-        jenis_phantom
-        ==
-        "Titik Tunggal (Off-Center Dot)"
-    ):
+# ============================================================
+# MODULE 2
+# ============================================================
 
-        theoretical_t = point_projection_t(
-            OFFCENTER_X,
-            OFFCENTER_Y,
-            current_angle
+elif menu == "🔄 Module 2 — SBP vs FBP":
+
+    st.header(
+        "🔄 Module 2 — Simple Back Projection vs Filtered Back Projection"
+    )
+
+    st.markdown(
+        """
+        Modul ini menunjukkan perbedaan antara:
+
+        - **SBP — Simple Back Projection**
+        - **FBP — Filtered Back Projection**
+        """
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # CONTROLS
+    # --------------------------------------------------------
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        image_size = st.slider(
+            "Ukuran phantom",
+            64,
+            256,
+            128,
+            16
         )
 
-        st.markdown(
-            f"""
-            ### 🎯 Posisi Geometrik Titik
+    with col2:
 
-            Titik phantom berada pada:
+        number_of_projections = st.slider(
+            "Jumlah projection views",
+            18,
+            180,
+            60,
+            18
+        )
 
-            $$
-            (x_0,y_0)
-            =
-            ({OFFCENTER_X:.0f},{OFFCENTER_Y:.0f})
-            $$
+    # --------------------------------------------------------
+    # PHANTOM
+    # --------------------------------------------------------
 
-            Posisi proyeksinya secara geometrik adalah:
+    phantom = create_shepp_logan(
+        image_size
+    )
 
-            $$
-            t(\\theta)
-            =
-            x_0\\cos\\theta
+    theta = np.linspace(
+        0,
+        180,
+        number_of_projections,
+        endpoint=False
+    )
+
+    # --------------------------------------------------------
+    # RADON
+    # --------------------------------------------------------
+
+    sinogram = radon(
+        phantom,
+        theta=theta,
+        circle=True
+    )
+
+    # --------------------------------------------------------
+    # SBP
+    # --------------------------------------------------------
+
+    reconstruction_sbp = iradon(
+        sinogram,
+        theta=theta,
+        filter_name=None,
+        circle=True
+    )
+
+    # --------------------------------------------------------
+    # FBP
+    # --------------------------------------------------------
+
+    reconstruction_fbp = iradon(
+        sinogram,
+        theta=theta,
+        filter_name="ramp",
+        circle=True
+    )
+
+    # --------------------------------------------------------
+    # DISPLAY
+    # --------------------------------------------------------
+
+    fig, axes = plt.subplots(
+        1,
+        4,
+        figsize=(20, 5)
+    )
+
+    axes[0].imshow(
+        phantom,
+        cmap="gray"
+    )
+
+    axes[0].set_title(
+        "Original Phantom"
+    )
+
+    axes[1].imshow(
+        sinogram,
+        cmap="gray",
+        aspect="auto"
+    )
+
+    axes[1].set_title(
+        f"Sinogram\n{number_of_projections} views"
+    )
+
+    axes[2].imshow(
+        reconstruction_sbp,
+        cmap="gray"
+    )
+
+    axes[2].set_title(
+        "Simple Back Projection"
+    )
+
+    axes[3].imshow(
+        reconstruction_fbp,
+        cmap="gray"
+    )
+
+    axes[3].set_title(
+        "Filtered Back Projection"
+    )
+
+    for ax in axes:
+
+        ax.axis("off")
+
+    plt.tight_layout()
+
+    st.pyplot(
+        fig,
+        clear_figure=True
+    )
+
+    plt.close(fig)
+
+    st.info(
+        """
+        **Observasi:**
+        
+        SBP menghasilkan citra yang lebih blur karena projection
+        langsung diback-project tanpa filtering.
+        
+        FBP menggunakan filtering sebelum back-projection sehingga
+        struktur dan edge dapat dipertahankan lebih baik.
+        """
+    )
+
+
+# ============================================================
+# MODULE 3
+# ============================================================
+
+elif menu == "🎨 Module 3 — Manipulation & Visualization":
+
+    st.header(
+        "🎨 Module 3 — Manipulation & Visualization"
+    )
+
+    st.markdown(
+        """
+        Modul ini digunakan untuk mengeksplorasi pengaruh
+        **angular sampling** terhadap kualitas sinogram dan hasil
+        rekonstruksi.
+        """
+    )
+
+    # --------------------------------------------------------
+    # CONTROLS
+    # --------------------------------------------------------
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        number_of_views = st.select_slider(
+            "Jumlah projection views",
+            options=[
+                18,
+                30,
+                45,
+                60,
+                90,
+                120,
+                180
+            ],
+            value=18
+        )
+
+    with col2:
+
+        noise_sigma = st.slider(
+            "Noise",
+            0.0,
+            0.5,
+            0.0,
+            0.01
+        )
+
+    # --------------------------------------------------------
+    # PHANTOM
+    # --------------------------------------------------------
+
+    phantom = create_shepp_logan(
+        128
+    )
+
+    theta = np.linspace(
+        0,
+        180,
+        number_of_views,
+        endpoint=False
+    )
+
+    # --------------------------------------------------------
+    # SINOGRAM
+    # --------------------------------------------------------
+
+    sinogram = radon(
+        phantom,
+        theta=theta,
+        circle=True
+    )
+
+    # --------------------------------------------------------
+    # ADD NOISE
+    # --------------------------------------------------------
+
+    if noise_sigma > 0:
+
+        np.random.seed(42)
+
+        sinogram = (
+            sinogram
             +
-            y_0\\sin\\theta
-            $$
-
-            sehingga pada θ = **{current_angle:.1f}°**:
-
-            $$
-            t(\\theta)
-            =
-            {theoretical_t:.2f}
-            $$
-
-            Nilai inilah yang digunakan oleh mode
-            **"Otomatis: Beam Mengikuti Titik"**.
-            """
-        )
-
-
-    # ========================================================
-    # ANIMATION
-    # ========================================================
-
-    if btn_start:
-
-        st.markdown("---")
-
-        st.subheader(
-            "🎬 Simulasi Pembentukan Sinogram"
-        )
-
-        st.caption(
-            "Beam berputar dari sudut awal hingga sudut akhir. "
-            "Projection dan sinogram diperbarui pada setiap sudut."
-        )
-
-
-        animation_placeholder = st.empty()
-
-        status_placeholder = st.empty()
-
-
-        # ----------------------------------------------------
-        # ANIMATION LOOP
-        # ----------------------------------------------------
-
-        for curr_idx in range(
-            len(theta)
-        ):
-
-            angle_now = float(
-                theta[curr_idx]
-            )
-
-
-            # ------------------------------------------------
-            # ACTIVE BEAM POSITION
-            # ------------------------------------------------
-
-            if (
-                mode_beam
-                ==
-                "Otomatis: Beam Mengikuti Titik"
-            ):
-
-                if (
-                    jenis_phantom
-                    ==
-                    "Titik Tunggal (Off-Center Dot)"
-                ):
-
-                    t_now = point_projection_t(
-                        OFFCENTER_X,
-                        OFFCENTER_Y,
-                        angle_now
-                    )
-
-                else:
-
-                    t_now = 0.0
-
-            else:
-
-                t_now = float(
-                    detector_t_manual
-                )
-
-
-            t_now = float(
-                np.clip(
-                    t_now,
-                    detector_t[0],
-                    detector_t[-1]
-                )
-            )
-
-
-            # ------------------------------------------------
-            # CURRENT DETECTOR INDEX
-            # ------------------------------------------------
-
-            detector_idx_now = int(
-                np.argmin(
-                    np.abs(
-                        detector_t
-                        -
-                        t_now
-                    )
-                )
-            )
-
-
-            # ------------------------------------------------
-            # CURRENT PROJECTION
-            # ------------------------------------------------
-
-            projection_now = (
-                sinogram_display[
-                    :,
-                    curr_idx
-                ]
-            )
-
-
-            # ------------------------------------------------
-            # CURRENT ATTENUATION
-            # ------------------------------------------------
-
-            attenuation_now = float(
-                projection_now[
-                    detector_idx_now
-                ]
-            )
-
-
-            # ------------------------------------------------
-            # HIT / MISS
-            # ------------------------------------------------
-
-            hit_now = (
-                attenuation_now
-                >
-                hit_threshold
-            )
-
-
-            if hit_now:
-
-                color_now = "#ff1744"
-
-            else:
-
-                color_now = "#00e5ff"
-
-
-            # ------------------------------------------------
-            # BEAM GEOMETRY
-            # ------------------------------------------------
-
-            (
-                bx,
-                by,
-                dx,
-                dy
-            ) = beam_geometry(
-                angle_now,
-                t_now
-            )
-
-
-            L = N * 0.95
-
-
-            xa = (
-                bx
-                -
-                L * dx
-            )
-
-            ya = (
-                by
-                -
-                L * dy
-            )
-
-            xb = (
-                bx
-                +
-                L * dx
-            )
-
-            yb = (
-                by
-                +
-                L * dy
-            )
-
-
-            # ------------------------------------------------
-            # ACCUMULATED SINOGRAM
-            # ------------------------------------------------
-
-            accumulated_sinogram = np.zeros_like(
-                sinogram_display
-            )
-
-
-            accumulated_sinogram[
-                :,
-                :curr_idx + 1
-            ] = (
-                sinogram_display[
-                    :,
-                    :curr_idx + 1
-                ]
-            )
-
-
-            # ------------------------------------------------
-            # FIGURE
-            # ------------------------------------------------
-
-            fig_anim, (
-                a1,
-                a2,
-                a3
-            ) = plt.subplots(
-                1,
-                3,
-                figsize=(18, 5.5)
-            )
-
-
-            fig_anim.patch.set_facecolor(
-                "#0e1117"
-            )
-
-
-            for ax in [
-                a1,
-                a2,
-                a3
-            ]:
-
-                ax.set_facecolor(
-                    "#161b22"
-                )
-
-
-            # =================================================
-            # ANIMATION PANEL 1
-            # =================================================
-
-            a1.set_title(
-                f"1. Pemindaian Sinar-X ({angle_now:.1f}°)",
-                color="#5edcff",
-                fontsize=12,
-                fontweight="bold"
-            )
-
-
-            a1.imshow(
-                image,
-                cmap="bone",
-                origin="lower",
-                extent=[
-                    -N / 2,
-                    N / 2,
-                    -N / 2,
-                    N / 2
-                ]
-            )
-
-
-            a1.plot(
-                [
-                    xa,
-                    xb
-                ],
-                [
-                    ya,
-                    yb
-                ],
-                color=color_now,
-                linewidth=2.5,
-                linestyle="--"
-            )
-
-
-            # Beam center
-
-            a1.scatter(
-                [bx],
-                [by],
-                color="#ffea00",
-                s=45,
-                zorder=6
-            )
-
-
-            # Phantom point
-
-            if (
-                jenis_phantom
-                ==
-                "Titik Tunggal (Off-Center Dot)"
-            ):
-
-                a1.scatter(
-                    [OFFCENTER_X],
-                    [OFFCENTER_Y],
-                    facecolors="none",
-                    edgecolors="#ffea00",
-                    s=130,
-                    linewidths=1.5,
-                    zorder=7
-                )
-
-
-            a1.set_xlim(
-                -N / 2,
-                N / 2
-            )
-
-            a1.set_ylim(
-                -N / 2,
-                N / 2
-            )
-
-            a1.set_axis_off()
-
-
-            # =================================================
-            # ANIMATION PANEL 2
-            # =================================================
-
-            a2.set_title(
-                f"2. Profil Proyeksi 1D ({angle_now:.1f}°)",
-                color="#5edcff",
-                fontsize=12,
-                fontweight="bold"
-            )
-
-
-            a2.plot(
-                detector_t,
-                projection_now,
-                color="#5edcff",
-                linewidth=2
-            )
-
-
-            a2.fill_between(
-                detector_t,
-                projection_now,
-                color="#5edcff",
-                alpha=0.18
-            )
-
-
-            # Active beam
-
-            a2.axvline(
-                t_now,
-                color=color_now,
-                linestyle="--",
-                linewidth=2.5
-            )
-
-
-            # Active attenuation
-
-            a2.scatter(
-                [t_now],
-                [attenuation_now],
-                color="#ffea00",
-                s=75,
-                zorder=8
-            )
-
-
-            a2.set_xlim(
-                detector_t[0],
-                detector_t[-1]
-            )
-
-            a2.set_ylim(
+            np.random.normal(
                 0,
-                max(
-                    float(
-                        np.max(
-                            projection_now
-                        )
-                    )
-                    * 1.15,
-                    1.0
-                )
+                noise_sigma,
+                sinogram.shape
             )
-
-
-            a2.set_xlabel(
-                "Detector position t"
-            )
-
-            a2.set_ylabel(
-                "Attenuation"
-            )
-
-            a2.grid(
-                True,
-                linestyle=":",
-                alpha=0.25
-            )
-
-
-            # =================================================
-            # ANIMATION PANEL 3
-            # =================================================
-
-            a3.set_title(
-                "3. Sinogram — Dibentuk Real-Time",
-                color="#5edcff",
-                fontsize=12,
-                fontweight="bold"
-            )
-
-
-            a3.imshow(
-                accumulated_sinogram,
-                cmap="bone",
-                extent=[
-                    theta[0],
-                    theta[-1]
-                    if len(theta) > 1
-                    else sudut_maksimal,
-                    detector_t[0],
-                    detector_t[-1]
-                ],
-                aspect="auto",
-                interpolation="nearest",
-                origin="lower",
-                vmin=0,
-                vmax=sinogram_max
-            )
-
-
-            # Current angle
-
-            a3.axvline(
-                angle_now,
-                color="#ff1744",
-                linestyle="--",
-                linewidth=1.8
-            )
-
-
-            # Current measurement
-
-            a3.scatter(
-                [angle_now],
-                [t_now],
-                color="#ffea00",
-                s=70,
-                zorder=8
-            )
-
-
-            a3.set_xlim(
-                theta[0],
-                theta[-1]
-                if len(theta) > 1
-                else sudut_maksimal
-            )
-
-            a3.set_ylim(
-                detector_t[0],
-                detector_t[-1]
-            )
-
-
-            a3.set_xlabel(
-                "Projection angle θ (°)"
-            )
-
-            a3.set_ylabel(
-                "Detector position t"
-            )
-
-
-            # ------------------------------------------------
-            # RENDER
-            # ------------------------------------------------
-
-            plt.tight_layout()
-
-
-            animation_placeholder.pyplot(
-                fig_anim,
-                use_container_width=True
-            )
-
-
-            plt.close(
-                fig_anim
-            )
-
-
-            # ------------------------------------------------
-            # STATUS
-            # ------------------------------------------------
-
-            if hit_now:
-
-                status_placeholder.error(
-                    f"""
-                    🔴 **BEAM HIT**
-                    
-                    θ = {angle_now:.1f}°
-                    |
-                    t = {t_now:.2f}
-                    |
-                    Attenuation = {attenuation_now:.3f}
-                    """
-                )
-
-            else:
-
-                status_placeholder.info(
-                    f"""
-                    🔵 **BEAM MISS**
-                    
-                    θ = {angle_now:.1f}°
-                    |
-                    t = {t_now:.2f}
-                    |
-                    Attenuation = {attenuation_now:.3f}
-                    """
-                )
-
-
-            # Animation speed
-
-            time.sleep(
-                0.04
-            )
-
-
-        status_placeholder.success(
-            "✅ Akuisisi selesai. Sinogram telah terbentuk."
         )
 
+    # --------------------------------------------------------
+    # RECONSTRUCTION
+    # --------------------------------------------------------
 
-    # ========================================================
-    # DOWNLOAD DATA
-    # ========================================================
+    reconstruction = iradon(
+        sinogram,
+        theta=theta,
+        filter_name="ramp",
+        circle=True
+    )
 
-    st.markdown("---")
+    # --------------------------------------------------------
+    # DISPLAY
+    # --------------------------------------------------------
+
+    fig, axes = plt.subplots(
+        1,
+        3,
+        figsize=(16, 5)
+    )
+
+    axes[0].imshow(
+        phantom,
+        cmap="gray"
+    )
+
+    axes[0].set_title(
+        "Original Phantom"
+    )
+
+    axes[1].imshow(
+        sinogram,
+        cmap="gray",
+        aspect="auto"
+    )
+
+    axes[1].set_title(
+        f"Sinogram — {number_of_views} views"
+    )
+
+    axes[2].imshow(
+        reconstruction,
+        cmap="gray"
+    )
+
+    axes[2].set_title(
+        "FBP Reconstruction"
+    )
+
+    for ax in axes:
+
+        ax.axis("off")
+
+    plt.tight_layout()
+
+    st.pyplot(
+        fig,
+        clear_figure=True
+    )
+
+    plt.close(fig)
+
+    # --------------------------------------------------------
+    # INTERPRETATION
+    # --------------------------------------------------------
+
+    st.divider()
 
     st.subheader(
-        "💾 Data Projection"
+        "💡 What should you observe?"
     )
 
+    if number_of_views <= 30:
 
-    csv_buffer = io.StringIO()
-
-
-    header = (
-        "detector_t,"
-        +
-        ",".join(
-            [
-                f"theta_{angle:.2f}"
-                for angle in theta
-            ]
+        st.warning(
+            """
+            Jumlah projection relatif sedikit.
+            Perhatikan kemungkinan munculnya **streak artifacts**
+            akibat angular undersampling.
+            """
         )
-    )
 
+    elif number_of_views <= 60:
 
-    np.savetxt(
-        csv_buffer,
-        sinogram_display,
-        delimiter=",",
-        header=header,
-        comments=""
-    )
+        st.info(
+            """
+            Projection mulai lebih rapat sehingga kualitas
+            rekonstruksi meningkat dibandingkan jumlah view yang sangat
+            sedikit.
+            """
+        )
 
+    else:
 
-    st.download_button(
-        label="⬇️ Download Projection / Sinogram CSV",
-        data=csv_buffer.getvalue(),
-        file_name="ct_projection_sinogram.csv",
-        mime="text/csv"
-    )
+        st.success(
+            """
+            Projection lebih rapat sehingga sampling angular menjadi
+            lebih baik dan hasil rekonstruksi umumnya lebih stabil.
+            """
+        )
 
+    if noise_sigma > 0:
 
-# ============================================================
-# PAGE 2
-# MODULE 2 — REKONSTRUKSI
-# ============================================================
-
-elif menu_terpilih == "🧩 Modul 2: Rekonstruksi 2D (SBP vs FBP)":
-
-    st.title(
-        "🧩 Modul 2: Rekonstruksi 2D"
-    )
-
-    st.info(
-        """
-        Modul rekonstruksi akan menggunakan sinogram yang
-        dihasilkan pada Modul 1.
-
-        Metode yang akan dibandingkan:
-
-        1. Simple Back Projection (SBP)
-        2. Filtered Back Projection (FBP)
-        """
-    )
+        st.warning(
+            """
+            Noise ditambahkan ke projection data.
+            Perhatikan bagaimana noise pada sinogram dapat memengaruhi
+            hasil rekonstruksi.
+            """
+        )
 
 
 # ============================================================
-# PAGE 3
-# MODULE 3 — VISUALISASI
+# FOOTER
 # ============================================================
 
-elif menu_terpilih == "🎨 Modul 3: Manipulasi & Visualisasi":
+st.divider()
 
-    st.title(
-        "🎨 Modul 3: Manipulasi & Visualisasi"
-    )
-
-    st.info(
-        """
-        Modul ini akan digunakan untuk mengeksplorasi:
-
-        - manipulasi sinogram
-        - filtering
-        - perubahan parameter visualisasi
-        - rekonstruksi 3D
-        - visualisasi hasil CT-Scan
-        """
-    )
+st.caption(
+    """
+    Virtual CT-Scan Practicum | Biomedical Imaging | Teknik Biomedik ITS
+    """
+)
