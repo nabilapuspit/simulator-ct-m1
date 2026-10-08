@@ -253,7 +253,7 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
             data=file,
             file_name=f"sinogram_{jenis_phantom.split()[0].lower()}.csv",
             mime="text/csv"
-        )
+        ))
 # ---------------------------------------------------------
 # HALAMAN 2 & 3
 # ---------------------------------------------------------
