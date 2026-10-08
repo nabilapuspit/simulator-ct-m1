@@ -839,9 +839,13 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
             projection = sinogram_data[:, j]
 
             # Interpolasi projection pada posisi detector T
+            # map_coordinates mengharapkan coordinate array
+            # dengan shape (ndim, ...). Karena projection adalah
+            # array 1D, koordinat harus diberi satu dimensi tambahan:
+            # (1, image_size, image_size).
             backprojected = map_coordinates(
                 projection,
-                detector_index,
+                detector_index[None, :, :],
                 order=1,
                 mode="constant",
                 cval=0.0
