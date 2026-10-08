@@ -194,3 +194,82 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         ax2.fill_between(range(len(profil_1d)), profil_1d, color='#00e5ff', alpha=0.2)
         
         ax2.axvline(x=active_t, color=line_color, linestyle='--', linewidth=1.5, alpha=0.9, label=f'Posisi Beam t={active_t}')
+        ax2.legend(loc='upper right', fontsize=8)
+        
+        ax2.set_xlabel("Posisi Detektor (t)", color='white', fontsize=9)
+        ax2.set_ylabel("Jumlah Atenuasi", color='white', fontsize=9)
+        ax2.set_xlim(0, len(profil_1d))
+        ax2.set_ylim(0, max_attenuation)
+        ax2.grid(True, linestyle=':', alpha=0.3)
+        ax2.tick_params(colors='white', labelsize=8)
+
+        # ---------------- Panel 3 ----------------
+        ax3.set_title(f"3. Sinogram Akumulatif (0–{sudut_maksimal}°)", color='#00e5ff', fontsize=11, fontweight='bold')
+        ax3.imshow(sino_display, cmap='bone', extent=(0, sudut_maksimal, 0, sino_display.shape[0]), 
+                   aspect='auto', interpolation='nearest', vmin=0, vmax=float(np.max(sinogram_full)), origin='lower')
+        
+        ax3.axvline(x=sudut_sekarang, color='#ff1744', linewidth=1.5, linestyle='--', label=f'Sudut {sudut_sekarang:.1f}°')
+        ax3.scatter([sudut_sekarang], [active_t], color='#ffea00', s=50, zorder=5)
+        
+        ax3.set_xlim(0, sudut_maksimal)
+        ax3.set_ylim(0, sino_display.shape[0])
+        ax3.set_xlabel(r"Sudut Proyeksi $\theta$ (°)", color='white', fontsize=9)
+        ax3.set_ylabel("Posisi Detektor (t)", color='white', fontsize=9)
+        ax3.tick_params(colors='white', labelsize=8)
+
+        plt.tight_layout()
+        return fig, profil_1d, sudut_sekarang
+
+    # ------------------ EKSEKUSI ANIMASI / MANUAL ------------------
+    placeholder = st.empty()
+
+    if btn_start:
+        step = max(1, jumlah_sudut // 30)
+        for i in range(0, jumlah_sudut, step):
+            fig, profil_1d, sudut_sekarang = render_scan_frame(i, active_t=detektor_t_manual, is_partial=True)
+            placeholder.pyplot(fig)
+            plt.close('all')
+            time.sleep(0.01)
+            
+        fig, profil_1d, sudut_sekarang = render_scan_frame(jumlah_sudut - 1, active_t=detektor_t_manual, is_partial=False)
+        placeholder.pyplot(fig)
+        plt.close('all')
+    else:
+        idx_sudut = int((sudut_aktif / sudut_maksimal) * jumlah_sudut)
+        idx_sudut = min(idx_sudut, jumlah_sudut - 1)
+        fig, profil_1d, sudut_sekarang = render_scan_frame(idx_sudut, active_t=detektor_t_manual, is_partial=False)
+        placeholder.pyplot(fig)
+        plt.close('all')
+
+    # ------------------ METRIK & EXPORT (SCOPE AMAN) ------------------
+    st.write("---")
+    st.markdown("### 📊 Analisis Data Proyeksi & Unduh Hasil")
+    
+    val_at_t = profil_1d[clamp(detektor_t_manual, 0, len(profil_1d)-1)]
+    col_a1, col_a2, col_a3 = st.columns(3)
+    col_a1.metric(label="Sudut Aktif Saat Ini", value=f"{sudut_sekarang:.1f}°")
+    col_a2.metric(label=f"Atenuasi pada t={detektor_t_manual}", value=f"{val_at_t:.2f}")
+    col_a3.metric(label="Total Atenuasi Sudut Ini", value=f"{np.sum(profil_1d):.1f}")
+
+    buffer = io.StringIO()
+    np.savetxt(buffer, sinogram_full, delimiter=",")
+    csv_bytes = buffer.getvalue()
+
+    st.download_button(
+        label="💾 Unduh Data Sinogram Lengkap (CSV)",
+        data=csv_bytes,
+        file_name=f"sinogram_{jenis_phantom.split()[0].lower()}.csv",
+        mime="text/csv",
+        key="k_download_csv"
+    )
+
+# ---------------------------------------------------------
+# HALAMAN 2 & 3
+# ---------------------------------------------------------
+elif menu_terpilih == "🧩 Modul 2: Rekonstruksi 2D (SBP vs FBP)":
+    st.subheader("Modul 2: Rekonstruksi Citra 2D (SBP vs FBP)")
+    st.info("🚧 Modul ini sedang dalam tahap pengembangan.")
+
+elif menu_terpilih == "🎨 Modul 3: Manipulasi & Visualisasi":
+    st.subheader("Modul 3: Manipulasi & Visualisasi Citra CT-Scan")
+    st.info("🚧 Modul ini sedang dalam tahap pengembangan.")
