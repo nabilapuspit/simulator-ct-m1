@@ -235,12 +235,16 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         ]
     )
 
-    jumlah_sudut = st.sidebar.slider(
-        "Jumlah Proyeksi (Sampling Sudut)",
-        min_value=10,
-        max_value=360,
-        value=180,
-        step=10
+    interval_sudut = st.sidebar.select_slider(
+        "Interval Sampling Sudut",
+        options=[1, 5, 10, 15, 20, 30],
+        value=10
+    )
+
+    jumlah_sudut = int(
+        np.ceil(
+            sudut_maksimal / interval_sudut
+        )
     )
 
     sudut_maksimal = st.sidebar.slider(
@@ -315,12 +319,16 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         "▶ Mulai Pemindaian"
     )
 
-    sudut_aktif = st.sidebar.slider(
+    sudut_aktif = st.sidebar.select_slider(
         "Sudut Beam θ (°)",
-        min_value=0.0,
-        max_value=float(max(1, sudut_maksimal - 1)),
-        value=0.0,
-        step=1.0
+        options=list(
+            np.arange(
+                0,
+                sudut_maksimal,
+                interval_sudut
+            )
+        ),
+        value=0
     )
 
 
@@ -479,11 +487,10 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
     # ANGULAR SAMPLING
     # ========================================================
 
-    theta = np.linspace(
+    theta = np.arange(
         0.0,
         float(sudut_maksimal),
-        int(jumlah_sudut),
-        endpoint=False
+        float(interval_sudut)
     )
 
 
