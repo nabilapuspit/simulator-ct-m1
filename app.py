@@ -153,8 +153,8 @@ elif menu_terpilih == "Modul 1: Akuisisi & Sinogram":
             "Lingkaran Konsentris"
         ]
     )
-    jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=10, max_value=360, value=180, step=10)
-    sudut_maksimal = st.sidebar.slider("Rentang Sudut Total (°)", min_value=10, max_value=360, value=180, step=10)
+    jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=18, max_value=180, value=180, step=18)
+    sudut_maksimal = st.sidebar.slider("Rentang Sudut Total (°)", min_value=10, max_value=180, value=180, step=10)
 
     st.sidebar.header("2. Kontrol Beam")
     mode_beam = st.sidebar.radio(
@@ -582,19 +582,16 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
         """
         ### Tujuan Modul
 
-        Pada modul ini, mahasiswa akan mempelajari bagaimana citra CT
-        direkonstruksi dari data proyeksi yang telah diperoleh pada Modul 1.
+        Pada modul ini, mahasiswa mempelajari bagaimana jumlah proyeksi
+        memengaruhi hasil rekonstruksi CT.
 
-        Dua metode dibandingkan:
+        Alur eksperimen:
 
-        **1. Simple Back Projection (SBP)**  
-        Setiap profil proyeksi diproyeksikan kembali ke ruang citra sesuai
-        dengan arah akuisisinya.
+        **Jumlah Proyeksi → Sampling Sudut → Sinogram → SBP / FBP → Citra Rekonstruksi**
 
-        **2. Filtered Back Projection (FBP)**  
-        Data proyeksi terlebih dahulu diberi filter, kemudian dilakukan
-        back projection. Filtering digunakan untuk mengurangi efek blur
-        yang muncul pada SBP.
+        Untuk parallel-beam CT, rentang sudut **0°–180°** digunakan karena
+        proyeksi pada 180° mengandung informasi yang ekuivalen dengan arah
+        berlawanan.
         """
     )
 
@@ -615,14 +612,29 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
 
         st.stop()
 
-    # Ambil data dari Modul 1
     image_original = st.session_state["ct_image"]
     sinogram = st.session_state["ct_sinogram"]
     theta = st.session_state["ct_theta"]
     detector_t = st.session_state["ct_detector_t"]
 
     # ========================================================
-    # INFORMASI DATA
+    # VALIDASI RENTANG SUDUT
+    # ========================================================
+    #
+    # Modul 2 dirancang untuk parallel-beam reconstruction pada
+    # rentang 0–180°. Karena versi Modul 1 sekarang dibatasi hingga
+    # 180°, seluruh data di bawah merupakan data akuisisi 180°.
+    #
+
+    if theta[-1] >= 180.0:
+        theta_reconstruction = theta.copy()
+        sinogram_reconstruction = sinogram.copy()
+    else:
+        theta_reconstruction = theta.copy()
+        sinogram_reconstruction = sinogram.copy()
+
+    # ========================================================
+    # INPUT DARI MODUL 1
     # ========================================================
 
     st.subheader("1. Input dari Modul 1")
@@ -632,151 +644,24 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
     with col1:
         st.metric(
             "Ukuran Sinogram",
-            f"{sinogram.shape[0]} × {sinogram.shape[1]}"
+            f"{sinogram_reconstruction.shape[0]} × {sinogram_reconstruction.shape[1]}"
         )
 
     with col2:
         st.metric(
-            "Jumlah Proyeksi",
-            f"{len(theta)}"
+            "Proyeksi Akuisisi",
+            f"{len(theta_reconstruction)}"
         )
 
     with col3:
         st.metric(
             "Rentang Sudut",
-            f"{theta[0]:.1f}° – {theta[-1]:.1f}°"
+            f"0° – <180°"
         )
 
-    # ========================================================
-    # TAMPILKAN SINOGRAM
-    # ========================================================
-
-    fig_input, ax_input = plt.subplots(figsize=(8, 4.5))
-
-    fig_input.patch.set_facecolor("#0e1117")
-    ax_input.set_facecolor("#161b22")
-
-    ax_input.imshow(
-        sinogram,
-        cmap="bone",
-        aspect="auto",
-        extent=[
-            theta[0],
-            theta[-1],
-            detector_t[-1],
-            detector_t[0]
-        ],
-        origin="upper"
+    st.caption(
+        "Data pada Modul 2 berasal langsung dari sinogram yang dihasilkan pada Modul 1."
     )
-
-    ax_input.set_xlabel("Projection angle θ (°)")
-    ax_input.set_ylabel("Detector position t")
-    ax_input.set_title(
-        "Sinogram yang Digunakan untuk Rekonstruksi",
-        color="#5edcff",
-        fontweight="bold"
-    )
-
-    plt.tight_layout()
-    st.pyplot(fig_input, use_container_width=True)
-    plt.close(fig_input)
-
-    st.markdown(
-        """
-        **Interpretasi:**
-
-        Setiap kolom sinogram merepresentasikan satu profil proyeksi pada
-        sudut tertentu. Rekonstruksi bertujuan mengembalikan informasi
-        tersebut menjadi representasi spasial 2D.
-        """
-    )
-
-    st.divider()
-
-    # ========================================================
-    # EKSPERIMEN JUMLAH PROYEKSI
-    # ========================================================
-
-    st.subheader("2. Eksperimen Jumlah Proyeksi")
-
-    st.markdown(
-        """
-        Jumlah proyeksi menentukan seberapa banyak informasi angular yang
-        digunakan dalam proses rekonstruksi.
-        """
-    )
-
-    jumlah_proyeksi = st.slider(
-        "Jumlah proyeksi yang digunakan",
-        min_value=2,
-        max_value=len(theta),
-        value=len(theta),
-        step=1
-    )
-
-    # Memilih proyeksi yang tersebar merata sepanjang rentang sudut
-    indeks_proyeksi = np.linspace(
-        0,
-        len(theta) - 1,
-        jumlah_proyeksi
-    ).astype(int)
-
-    # Hilangkan kemungkinan indeks duplikat
-    indeks_proyeksi = np.unique(indeks_proyeksi)
-
-    sinogram_used = sinogram[:, indeks_proyeksi]
-    theta_used = theta[indeks_proyeksi]
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        fig_sub, ax_sub = plt.subplots(figsize=(7, 4))
-
-        fig_sub.patch.set_facecolor("#0e1117")
-        ax_sub.set_facecolor("#161b22")
-
-        ax_sub.imshow(
-            sinogram_used,
-            cmap="bone",
-            aspect="auto",
-            extent=[
-                theta_used[0],
-                theta_used[-1],
-                detector_t[-1],
-                detector_t[0]
-            ],
-            origin="upper"
-        )
-
-        ax_sub.set_xlabel("Projection angle θ (°)")
-        ax_sub.set_ylabel("Detector position t")
-        ax_sub.set_title(
-            f"Sinogram Digunakan ({len(theta_used)} proyeksi)",
-            color="#5edcff",
-            fontweight="bold"
-        )
-
-        plt.tight_layout()
-        st.pyplot(fig_sub, use_container_width=True)
-        plt.close(fig_sub)
-
-    with col2:
-
-        st.info(
-            f"""
-            **Data rekonstruksi**
-
-            Jumlah proyeksi = **{len(theta_used)}**
-
-            Rentang sudut = **{theta_used[0]:.1f}° – {theta_used[-1]:.1f}°**
-
-            Semakin sedikit proyeksi yang digunakan, semakin jarang sampling
-            angular yang tersedia untuk rekonstruksi.
-            """
-        )
-
-    st.divider()
 
     # ========================================================
     # FUNGSI SIMPLE BACK PROJECTION
@@ -795,7 +680,7 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
 
             t = x cos(theta) + y sin(theta)
 
-        kemudian mengambil nilai proyeksi pada posisi detector t
+        kemudian mengambil nilai projection pada posisi detector t
         dan menjumlahkannya untuk seluruh sudut.
         """
 
@@ -804,19 +689,14 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
             dtype=np.float64
         )
 
-        # Koordinat pixel relatif terhadap pusat citra
         coords = (
             np.arange(image_size)
             - image_size / 2
             + 0.5
         )
 
-        X, Y = np.meshgrid(
-            coords,
-            coords
-        )
+        X, Y = np.meshgrid(coords, coords)
 
-        # Jarak antar detector
         detector_spacing = float(
             np.mean(np.diff(detector_values))
         )
@@ -825,24 +705,17 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
 
             angle_rad = np.deg2rad(angle_deg)
 
-            # Parallel-beam geometry
             T = (
                 X * np.cos(angle_rad)
                 + Y * np.sin(angle_rad)
             )
 
-            # Konversi posisi detector menjadi index
             detector_index = (
                 T - detector_values[0]
             ) / detector_spacing
 
             projection = sinogram_data[:, j]
 
-            # Interpolasi projection pada posisi detector T
-            # map_coordinates mengharapkan coordinate array
-            # dengan shape (ndim, ...). Karena projection adalah
-            # array 1D, koordinat harus diberi satu dimensi tambahan:
-            # (1, image_size, image_size).
             backprojected = map_coordinates(
                 projection,
                 detector_index[None, :, :],
@@ -853,7 +726,7 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
 
             reconstructed += backprojected
 
-        # Aproksimasi integral terhadap theta
+        # Integral terhadap theta
         if len(theta_values) > 1:
 
             delta_theta = np.mean(
@@ -865,7 +738,7 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
         return reconstructed
 
     # ========================================================
-    # FUNGSI NORMALISASI VISUAL
+    # NORMALISASI VISUAL
     # ========================================================
 
     def normalize_image(img):
@@ -888,356 +761,407 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
         )
 
     # ========================================================
-    # TOMBOL REKONSTRUKSI
+    # 2. EKSPERIMEN JUMLAH PROYEKSI + REKONSTRUKSI
     # ========================================================
 
-    st.subheader("3. Rekonstruksi")
+    st.divider()
+
+    st.subheader(
+        "2. Eksperimen Jumlah Proyeksi → Hasil Rekonstruksi"
+    )
 
     st.markdown(
         """
-        Klik tombol berikut untuk melakukan rekonstruksi menggunakan
-        **Simple Back Projection (SBP)** dan **Filtered Back Projection (FBP)**.
+        **Pertanyaan eksperimen:** bagaimana kualitas rekonstruksi berubah
+        ketika jumlah sudut proyeksi dikurangi?
+
+        Rentang sudut tetap **0°–180°**. Yang diubah hanya **jumlah sampling
+        angular** di dalam rentang tersebut.
         """
     )
 
-    jalankan_rekonstruksi = st.button(
-        "▶ Jalankan Rekonstruksi SBP dan FBP",
-        type="primary",
-        use_container_width=True
+    # Pilihan yang lebih bermakna secara pedagogis daripada slider 2–360.
+    pilihan_proyeksi = [
+        n for n in [18, 30, 36, 45, 60, 90, 120, 180]
+        if n <= len(theta_reconstruction)
+    ]
+
+    if len(pilihan_proyeksi) < 2:
+        pilihan_proyeksi = list(range(2, len(theta_reconstruction) + 1))
+
+    jumlah_default = (
+        180 if 180 in pilihan_proyeksi
+        else pilihan_proyeksi[-1]
     )
 
-    if jalankan_rekonstruksi:
-
-        with st.spinner(
-            "Menghitung Simple Back Projection..."
-        ):
-
-            reconstruction_sbp = simple_back_projection(
-                sinogram_used,
-                theta_used,
-                detector_t,
-                image_original.shape[0]
-            )
-
-        with st.spinner(
-            "Menghitung Filtered Back Projection..."
-        ):
-
-            # iradon menerima:
-            # baris    = posisi detector
-            # kolom    = projection angle
-            #
-            # Filter yang digunakan:
-            # Ram-Lak / ramp filter
-
-            reconstruction_fbp = iradon(
-                sinogram_used,
-                theta=theta_used,
-                filter_name="ramp",
-                circle=False,
-                output_size=image_original.shape[0]
-            )
-
-        # Simpan hasil
-        st.session_state["reconstruction_sbp"] = (
-            reconstruction_sbp
-        )
-
-        st.session_state["reconstruction_fbp"] = (
-            reconstruction_fbp
-        )
-
-        st.session_state["reconstruction_theta"] = (
-            theta_used.copy()
-        )
-
-        st.session_state["reconstruction_sinogram"] = (
-            sinogram_used.copy()
-        )
-
-        st.session_state["reconstruction_num_projections"] = (
-            len(theta_used)
-        )
-
-        st.success(
-            "Rekonstruksi SBP dan FBP selesai."
-        )
+    jumlah_proyeksi = st.select_slider(
+        "Jumlah proyeksi",
+        options=pilihan_proyeksi,
+        value=jumlah_default
+    )
 
     # ========================================================
-    # TAMPILKAN HASIL REKONSTRUKSI
+    # MEMILIH SUDUT PROYEKSI
+    # ========================================================
+    #
+    # Penting:
+    # Kita tidak mengambil "potongan" interval 0–360.
+    # Kita memilih N sudut yang tersebar merata dari 0 sampai <180°.
+    #
+    # Dengan demikian:
+    # N = 180 -> Δθ ≈ 1°
+    # N = 90  -> Δθ ≈ 2°
+    # N = 36  -> Δθ ≈ 5°
+    # N = 18  -> Δθ ≈ 10°
+    #
+
+    theta_target = np.linspace(
+        0.0,
+        180.0,
+        jumlah_proyeksi,
+        endpoint=False
+    )
+
+    # Karena sinogram Modul 1 telah diakuisisi pada sudut yang
+    # sama-sama berjarak, ambil kolom terdekat terhadap theta_target.
+    indeks_proyeksi = np.array([
+        int(np.argmin(
+            np.abs(theta_reconstruction - target)
+        ))
+        for target in theta_target
+    ])
+
+    # Pastikan tidak ada indeks duplikat
+    indeks_proyeksi = np.unique(indeks_proyeksi)
+
+    theta_used = theta_reconstruction[indeks_proyeksi]
+    sinogram_used = sinogram_reconstruction[:, indeks_proyeksi]
+
+    # Jika jumlah indeks unik berbeda dari target, gunakan jumlah aktual.
+    jumlah_proyeksi_aktual = len(theta_used)
+
+    # ========================================================
+    # REKONSTRUKSI
     # ========================================================
 
-    if "reconstruction_sbp" in st.session_state:
+    with st.spinner(
+        f"Menghitung rekonstruksi untuk {jumlah_proyeksi_aktual} proyeksi..."
+    ):
 
-        reconstruction_sbp = (
-            st.session_state["reconstruction_sbp"]
+        reconstruction_sbp = simple_back_projection(
+            sinogram_used,
+            theta_used,
+            detector_t,
+            image_original.shape[0]
         )
 
-        reconstruction_fbp = (
-            st.session_state["reconstruction_fbp"]
+        reconstruction_fbp = iradon(
+            sinogram_used,
+            theta=theta_used,
+            filter_name="ramp",
+            circle=False,
+            output_size=image_original.shape[0]
         )
 
-        # Normalisasi hanya untuk visualisasi
-        sbp_display = normalize_image(
-            reconstruction_sbp
+    # Simpan hasil berdasarkan jumlah proyeksi
+    st.session_state["reconstruction_sbp"] = reconstruction_sbp
+    st.session_state["reconstruction_fbp"] = reconstruction_fbp
+    st.session_state["reconstruction_theta"] = theta_used.copy()
+    st.session_state["reconstruction_sinogram"] = sinogram_used.copy()
+    st.session_state["reconstruction_num_projections"] = (
+        jumlah_proyeksi_aktual
+    )
+
+    # ========================================================
+    # SATU LAYAR: SINOGRAM → SBP → FBP
+    # ========================================================
+
+    st.markdown(
+        f"""
+        #### Hasil untuk {jumlah_proyeksi_aktual} Proyeksi
+
+        **Rentang sudut:** 0°–180°  
+        **Angular sampling:** ≈ {180.0 / jumlah_proyeksi_aktual:.2f}° per proyeksi
+        """
+    )
+
+    sinogram_display = normalize_image(sinogram_used)
+    sbp_display = normalize_image(reconstruction_sbp)
+    fbp_display = normalize_image(reconstruction_fbp)
+
+    fig_experiment, axes = plt.subplots(
+        1,
+        3,
+        figsize=(18, 5.5)
+    )
+
+    fig_experiment.patch.set_facecolor("#0e1117")
+
+    # --------------------------------------------------------
+    # PANEL 1 — SINOGRAM
+    # --------------------------------------------------------
+
+    # Tampilkan setiap projection pada posisi sudut aktualnya.
+    # Dengan cara ini, mahasiswa dapat melihat bahwa ketika jumlah
+    # projection dikurangi, kolom sinogram benar-benar menjadi lebih jarang,
+    # bukan sekadar "memotong" atau mengubah panjang sinogram.
+    if len(theta_used) > 1:
+        delta_theta_visual = float(np.mean(np.diff(theta_used)))
+    else:
+        delta_theta_visual = 1.0
+
+    theta_edges = np.concatenate([
+        [max(0.0, theta_used[0] - delta_theta_visual / 2)],
+        (theta_used[:-1] + theta_used[1:]) / 2,
+        [min(180.0, theta_used[-1] + delta_theta_visual / 2)]
+    ])
+
+    # pcolormesh membutuhkan edge yang konsisten.
+    detector_edges = np.linspace(
+        detector_t[0] - 0.5,
+        detector_t[-1] + 0.5,
+        len(detector_t) + 1
+    )
+
+    axes[0].pcolormesh(
+        theta_edges,
+        detector_edges,
+        sinogram_display,
+        cmap="bone",
+        shading="auto",
+        vmin=0,
+        vmax=1
+    )
+
+    axes[0].set_xlim(0, 180)
+    axes[0].set_ylim(detector_t[-1], detector_t[0])
+
+    axes[0].set_title(
+        f"1. Sinogram\n{jumlah_proyeksi_aktual} Proyeksi",
+        color="#5edcff",
+        fontweight="bold"
+    )
+
+    axes[0].set_xlabel("Projection angle θ (°)")
+    axes[0].set_ylabel("Detector position t")
+
+    # --------------------------------------------------------
+    # PANEL 2 — SBP
+    # --------------------------------------------------------
+
+    axes[1].imshow(
+        sbp_display,
+        cmap="bone",
+        vmin=0,
+        vmax=1
+    )
+
+    axes[1].set_title(
+        "2. Simple Back Projection",
+        color="#5edcff",
+        fontweight="bold"
+    )
+
+    axes[1].axis("off")
+
+    # --------------------------------------------------------
+    # PANEL 3 — FBP
+    # --------------------------------------------------------
+
+    axes[2].imshow(
+        fbp_display,
+        cmap="bone",
+        vmin=0,
+        vmax=1
+    )
+
+    axes[2].set_title(
+        "3. Filtered Back Projection",
+        color="#5edcff",
+        fontweight="bold"
+    )
+
+    axes[2].axis("off")
+
+    plt.tight_layout()
+    st.pyplot(
+        fig_experiment,
+        use_container_width=True
+    )
+    plt.close(fig_experiment)
+
+    # ========================================================
+    # ORIGINAL PHANTOM
+    # ========================================================
+
+    with st.expander("Tampilkan Original Phantom untuk Perbandingan"):
+
+        fig_original, ax_original = plt.subplots(
+            figsize=(5, 5)
         )
 
-        fbp_display = normalize_image(
-            reconstruction_fbp
-        )
-
-        original_display = normalize_image(
-            image_original
-        )
-
-        st.divider()
-
-        st.subheader(
-            "4. Hasil Rekonstruksi: SBP vs FBP"
-        )
-
-        fig_compare, axes = plt.subplots(
-            1,
-            3,
-            figsize=(15, 5)
-        )
-
-        fig_compare.patch.set_facecolor("#0e1117")
-
-        axes[0].imshow(
-            original_display,
+        ax_original.imshow(
+            normalize_image(image_original),
             cmap="bone",
             vmin=0,
             vmax=1
         )
 
-        axes[0].set_title(
+        ax_original.set_title(
             "Original Phantom",
             color="#5edcff",
             fontweight="bold"
         )
 
-        axes[1].imshow(
-            sbp_display,
-            cmap="bone",
-            vmin=0,
-            vmax=1
-        )
-
-        axes[1].set_title(
-            "Simple Back Projection",
-            color="#5edcff",
-            fontweight="bold"
-        )
-
-        axes[2].imshow(
-            fbp_display,
-            cmap="bone",
-            vmin=0,
-            vmax=1
-        )
-
-        axes[2].set_title(
-            "Filtered Back Projection",
-            color="#5edcff",
-            fontweight="bold"
-        )
-
-        for ax in axes:
-            ax.axis("off")
-            ax.set_facecolor("#161b22")
+        ax_original.axis("off")
 
         plt.tight_layout()
         st.pyplot(
-            fig_compare,
-            use_container_width=True
+            fig_original,
+            use_container_width=False
         )
-        plt.close(fig_compare)
+        plt.close(fig_original)
 
-        # ====================================================
-        # PENJELASAN SBP
-        # ====================================================
+    # ========================================================
+    # INTERPRETASI JUMLAH PROYEKSI
+    # ========================================================
 
-        st.markdown(
-            """
-            ### Apa yang terjadi pada SBP?
+    st.divider()
 
-            Pada **Simple Back Projection**, setiap nilai pada projection
-            profile "dikembalikan" sepanjang garis yang sesuai dengan posisi
-            detector dan sudut akuisisinya.
+    st.subheader(
+        "3. Interpretasi Pengaruh Jumlah Proyeksi"
+    )
 
-            Secara sederhana:
+    st.markdown(
+        f"""
+        Saat ini digunakan **{jumlah_proyeksi_aktual} proyeksi** pada rentang
+        **0°–180°**, sehingga jarak rata-rata antar sudut adalah sekitar
+        **{180.0 / jumlah_proyeksi_aktual:.2f}°**.
 
-            $$
-            f_{BP}(x,y)
-            \\approx
-            \\sum_{\\theta}
-            p(t,\\theta)
-            $$
+        Ketika jumlah proyeksi dikurangi:
 
-            dengan:
+        - Jarak antar sudut (**Δθ**) menjadi lebih besar.
+        - Sampling angular menjadi lebih jarang.
+        - Informasi yang tersedia untuk backprojection menjadi lebih sedikit.
+        - Artefak akibat angular undersampling dapat semakin terlihat.
+        - Pada jumlah proyeksi yang sangat sedikit, struktur objek menjadi
+          semakin sulit direkonstruksi secara akurat.
+        """
+    )
 
-            $$
-            t = x\\cos\\theta + y\\sin\\theta
-            $$
+    st.info(
+        """
+        **Perhatikan tiga panel di atas secara bersamaan.**
 
-            Karena setiap measurement disebarkan kembali sepanjang garis,
-            informasi dari banyak sudut akan saling tumpang tindih.
+        Jangan hanya melihat sinogram. Hubungkan perubahan sampling angular
+        pada sinogram dengan perubahan struktur pada hasil SBP dan FBP.
+        """
+    )
 
-            Akibatnya, hasil SBP cenderung mengalami **blur**.
-            """
-        )
+    # ========================================================
+    # KONSEP SBP
+    # ========================================================
 
-        # ====================================================
-        # PENJELASAN FBP
-        # ====================================================
+    st.subheader(
+        "4. Mengapa SBP Menghasilkan Blur?"
+    )
 
-        st.markdown(
-            """
-            ### Apa yang terjadi pada FBP?
+    st.markdown(
+        """
+        Pada **Simple Back Projection**, setiap nilai projection dikembalikan
+        sepanjang garis yang sesuai dengan posisi detector:
 
-            Pada **Filtered Back Projection**, projection profile tidak
-            langsung di-backproject.
+        $$
+        t = x\\cos\\theta + y\\sin\\theta
+        $$
 
-            Data proyeksi terlebih dahulu melewati proses filtering:
+        kemudian:
 
-            $$
-            p_f(t,\\theta)
-            =
-            p(t,\\theta) * h(t)
-            $$
+        $$
+        f_{BP}(x,y)
+        \\approx
+        \\sum_{\\theta}
+        p(t,\\theta)
+        $$
 
-            kemudian dilakukan backprojection:
+        Setiap measurement menyebarkan informasi sepanjang garis. Akumulasi
+        dari banyak garis menyebabkan informasi tidak hanya terkonsentrasi
+        pada lokasi objek, tetapi juga tersebar di sekitarnya.
 
-            $$
-            f_{FBP}(x,y)
-            =
-            \\int
-            p_f(t,\\theta)
-            \\,d\\theta
-            $$
+        Akibatnya, citra SBP terlihat **blur**.
+        """
+    )
 
-            Filter yang digunakan pada simulasi ini adalah
-            **Ram-Lak (ramp filter)**.
+    # ========================================================
+    # KONSEP FBP
+    # ========================================================
 
-            Filtering membantu mengompensasi efek blur dari proses
-            backprojection sehingga struktur dan batas objek menjadi lebih
-            tajam.
-            """
-        )
+    st.subheader(
+        "5. Mengapa FBP Lebih Tajam?"
+    )
 
-        st.divider()
+    st.markdown(
+        """
+        Pada **Filtered Back Projection**, projection terlebih dahulu
+        difilter:
 
-        # ====================================================
-        # PERBANDINGAN KUALITATIF
-        # ====================================================
+        $$
+        p_f(t,\\theta)
+        =
+        p(t,\\theta) * h(t)
+        $$
 
-        st.subheader(
-            "5. Interpretasi SBP dan FBP"
-        )
+        kemudian dilakukan backprojection:
 
-        col_sbp, col_fbp = st.columns(2)
+        $$
+        f_{FBP}(x,y)
+        =
+        \\int p_f(t,\\theta)\\,d\\theta
+        $$
 
-        with col_sbp:
+        Filter yang digunakan pada simulator adalah **Ram-Lak / ramp filter**.
 
-            st.markdown(
-                """
-                #### Simple Back Projection
+        Filtering mengompensasi efek spreading yang terjadi pada
+        backprojection sehingga struktur dan edge objek dapat direkonstruksi
+        dengan lebih tajam.
+        """
+    )
 
-                **Kelebihan**
-                - Konsep sangat sederhana.
-                - Mudah menunjukkan hubungan projection → image.
-                - Cocok untuk memahami prinsip backprojection.
+    # ========================================================
+    # TABEL EKSPERIMEN
+    # ========================================================
 
-                **Kekurangan**
-                - Menghasilkan citra yang relatif blur.
-                - Struktur tepi kurang tajam.
-                - Belum mengompensasi efek spreading pada backprojection.
-                """
-            )
+    st.divider()
 
-        with col_fbp:
+    st.subheader(
+        "6. Panduan Eksperimen Mahasiswa"
+    )
 
-            st.markdown(
-                """
-                #### Filtered Back Projection
+    st.markdown(
+        """
+        Lakukan pengamatan pada beberapa kondisi:
 
-                **Kelebihan**
-                - Mengurangi efek blur SBP.
-                - Struktur dan edge lebih jelas.
-                - Secara historis merupakan algoritma penting dalam CT.
+        | Jumlah Proyeksi | Δθ | Pertanyaan |
+        |---:|---:|---|
+        | 18 | 10° | Apa artefak yang mulai terlihat? |
+        | 36 | 5° | Apakah struktur mulai lebih baik? |
+        | 90 | 2° | Bagaimana perubahan kualitas? |
+        | 180 | 1° | Bagaimana hasil pada sampling yang lebih rapat? |
 
-                **Kekurangan**
-                - Lebih sensitif terhadap noise.
-                - Memerlukan proses filtering.
-                - Hasil dipengaruhi oleh jumlah dan kualitas projection.
-                """
-            )
+        **Pertanyaan analisis:**
 
-        # ====================================================
-        # EKSPERIMEN JUMLAH PROYEKSI
-        # ====================================================
-
-        st.divider()
-
-        st.subheader(
-            "6. Eksperimen: Pengaruh Jumlah Proyeksi"
-        )
-
-        st.markdown(
-            """
-            Coba ubah **Jumlah Proyeksi** di bagian atas dan jalankan
-            rekonstruksi kembali.
-
-            Perhatikan:
-
-            1. Apakah struktur phantom masih dapat dikenali?
-            2. Apakah muncul artefak?
-            3. Apakah edge menjadi lebih kasar?
-            4. Apa perbedaan hasil SBP dan FBP ketika jumlah proyeksi sedikit?
-            """
-        )
-
-        st.warning(
-            """
-            **Eksperimen mahasiswa**
-
-            Bandingkan hasil rekonstruksi menggunakan jumlah proyeksi yang
-            berbeda, misalnya:
-
-            **18 → 36 → 72 → 180 proyeksi**
-
-            Kemudian jelaskan bagaimana angular sampling mempengaruhi kualitas
-            rekonstruksi.
-            """
-        )
-
-        # ====================================================
-        # RINGKASAN HASIL EKSPERIMEN
-        # ====================================================
-
-        st.divider()
-
-        st.subheader("7. Ringkasan Eksperimen")
-
-        st.markdown(
-            f"""
-            Rekonstruksi terakhir menggunakan:
-
-            - **Jumlah proyeksi:** {len(theta_used)}
-            - **Rentang sudut:** {theta_used[0]:.1f}° – {theta_used[-1]:.1f}°
-            - **Metode 1:** Simple Back Projection
-            - **Metode 2:** Filtered Back Projection
-            - **Filter FBP:** Ram-Lak / Ramp
-
-            Gunakan hasil visualisasi untuk menjelaskan mengapa FBP dapat
-            menghasilkan citra yang lebih tajam dibandingkan SBP.
-            """
-        )
+        1. Bagaimana hubungan jumlah proyeksi dengan angular sampling?
+        2. Mengapa pengurangan jumlah proyeksi dapat menimbulkan artefak?
+        3. Mengapa SBP tetap terlihat blur meskipun jumlah proyeksi diperbanyak?
+        4. Mengapa FBP dapat menghasilkan citra yang lebih tajam dibandingkan SBP?
+        5. Apakah FBP selalu bebas dari artefak ketika jumlah proyeksi sangat sedikit?
+        """
+    )
 
 
 # ============================================================
 # PAGE 3 — MODULE 3 — VISUALISASI
+# ============================================================
 # ============================================================
 
 # ============================================================
