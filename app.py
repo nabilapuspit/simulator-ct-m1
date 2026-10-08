@@ -147,32 +147,28 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
         for ax in [ax1, ax2, ax3]:
             ax.set_facecolor('#161b22')
 
-        # Panel 1: Objek + Berkas Sinar-X (Disesuaikan dengan Offset Detektor t)
+        # Panel 1: Pemindaian Sinar-X (Garis Sumbu Proyeksi Utama theta)
         ax1.set_title(f"1. Pemindaian Sinar-X ({sudut_sekarang:.1f}°)", color='#00e5ff', fontsize=11, fontweight='bold')
-        ax1.imshow(image, cmap='bone')
+        ax1.imshow(image, cmap='bone', origin='upper')
         
+        # Konvensi Geometri Radon scikit-image di Matplotlib (origin='upper')
+        # Sinar-X sejajar memindai tegak lurus terhadap sumbu proyeksi theta
         rad = np.deg2rad(sudut_sekarang)
         
-        # Cari offset t (posisi puncak atenuasi pada profil 1D)
-        idx_peak = np.argmax(profil_1d)
-        t_offset = idx_peak - center
-        
-        # Vektor arah garis pemindaian & vektor normal offset
+        # Arah garis berkas sinar-X utama (Pusat Rotasi t=0)
+        # Pada Matplotlib y-down, arah garis berkas adalah (-sin(rad), -cos(rad))
         dir_x = -np.sin(rad)
-        dir_y = np.cos(rad)
-        norm_x = np.cos(rad)
-        norm_y = np.sin(rad)
+        dir_y = -np.cos(rad)
         
-        # Titik tengah garis pemindaian yang tergeser sejauh t_offset
-        x_c = center + t_offset * norm_x
-        y_c = center + t_offset * norm_y
+        length = center * 1.3
+        x_line = [center - length * dir_x, center + length * dir_x]
+        y_line = [center - length * dir_y, center + length * dir_y]
         
-        length = center * 1.1
-        x_line = [x_c - length * dir_x, x_c + length * dir_x]
-        y_line = [y_c - length * dir_y, y_c + length * dir_y]
-        
-        ax1.plot(x_line, y_line, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Radiasi')
+        # Plot Garis Sinar-X Utama yang Melintasi Pusat Rotasi
+        ax1.plot(x_line, y_line, color='#ff1744', linewidth=2, linestyle='--', label='Berkas Utama (t=0)')
         ax1.scatter([x_line[0]], [y_line[0]], color='#ffea00', s=70, zorder=5, label='Sumber Sinar-X')
+        ax1.plot(center, center, 'r+', markersize=10, markeredgewidth=2, label='Pusat Rotasi')
+        
         ax1.legend(loc='upper right', fontsize=8)
         ax1.set_axis_off()
 
