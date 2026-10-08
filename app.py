@@ -266,12 +266,6 @@ elif menu_terpilih == "🔬 Modul 1: Akuisisi & Sinogram":
             )
             placeholder.pyplot(fig)
             plt.close('all')
-        else:
-            idx_sudut = int((sudut_aktif / sudut_maksimal) * jumlah_sudut)
-            idx_sudut = min(idx_sudut, jumlah_sudut - 1)
-            fig, profil_1d, sudut_sekarang = render_scan_frame(idx_sudut, active_t=detektor_t_manual, is_partial=False)
-            placeholder.pyplot(fig)
-            plt.close('all')
 
     # ------------------ METRIK & EXPORT ------------------
     st.write("---")
