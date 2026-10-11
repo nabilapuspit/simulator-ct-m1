@@ -153,8 +153,8 @@ elif menu_terpilih == "Modul 1: Akuisisi & Sinogram":
             "Lingkaran Konsentris"
         ]
     )
-    jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=18, max_value=180, value=180, step=18)
-    sudut_maksimal = st.sidebar.slider("Rentang Sudut Total (°)", min_value=10, max_value=180, value=180, step=10)
+    jumlah_sudut = st.sidebar.slider("Jumlah Proyeksi (Sampling Sudut)", min_value=18, max_value=360, value=360, step=18)
+    sudut_maksimal = st.sidebar.slider("Rentang Sudut Total (°)", min_value=10, max_value=360, value=360, step=10)
 
     st.sidebar.header("2. Kontrol Beam")
     mode_beam = st.sidebar.radio(
@@ -589,9 +589,10 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
 
         **Jumlah Proyeksi → Sampling Sudut → Sinogram → SBP / FBP → Citra Rekonstruksi**
 
-        Untuk parallel-beam CT, rentang sudut **0°–180°** digunakan karena
-        proyeksi pada 180° mengandung informasi yang ekuivalen dengan arah
-        berlawanan.
+        Pada versi ini, rentang akuisisi dapat diatur hingga **360°** untuk
+        memperlihatkan satu rotasi penuh. Pada geometri parallel-beam, data
+        180°–360° secara ideal bersifat redundan terhadap data 0°–180°
+        dengan pembalikan arah detector.
         """
     )
 
@@ -618,20 +619,24 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
     detector_t = st.session_state["ct_detector_t"]
 
     # ========================================================
-    # VALIDASI RENTANG SUDUT
+    # RENTANG AKUISISI DARI MODUL 1
     # ========================================================
-    #
-    # Modul 2 dirancang untuk parallel-beam reconstruction pada
-    # rentang 0–180°. Karena versi Modul 1 sekarang dibatasi hingga
-    # 180°, seluruh data di bawah merupakan data akuisisi 180°.
-    #
+    # theta dibuat dengan endpoint=False. Karena itu, rentang akuisisi
+    # dihitung sebagai sudut sampel terakhir + jarak antar-sampel.
+    theta_reconstruction = theta.copy()
+    sinogram_reconstruction = sinogram.copy()
 
-    if theta[-1] >= 180.0:
-        theta_reconstruction = theta.copy()
-        sinogram_reconstruction = sinogram.copy()
+    if len(theta_reconstruction) > 1:
+        delta_theta_acquisition = float(
+            np.mean(np.diff(theta_reconstruction))
+        )
     else:
-        theta_reconstruction = theta.copy()
-        sinogram_reconstruction = sinogram.copy()
+        delta_theta_acquisition = float(sudut_maksimal)
+
+    rentang_akuisisi = min(
+        360.0,
+        float(theta_reconstruction[-1] + delta_theta_acquisition)
+    )
 
     # ========================================================
     # INPUT DARI MODUL 1
@@ -656,7 +661,7 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
     with col3:
         st.metric(
             "Rentang Sudut",
-            f"0° – <180°"
+            f"0° – <{rentang_akuisisi:.0f}°"
         )
 
     st.caption(
@@ -775,14 +780,15 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
         **Pertanyaan eksperimen:** bagaimana kualitas rekonstruksi berubah
         ketika jumlah sudut proyeksi dikurangi?
 
-        Rentang sudut tetap **0°–180°**. Yang diubah hanya **jumlah sampling
-        angular** di dalam rentang tersebut.
+        Rentang sudut mengikuti pengaturan akuisisi pada Modul 1
+        (hingga **0°–360°**). Yang diubah hanya **jumlah sampling angular**
+        di dalam rentang tersebut.
         """
     )
 
     # Pilihan yang lebih bermakna secara pedagogis daripada slider 2–360.
     pilihan_proyeksi = [
-        n for n in [18, 30, 36, 45, 60, 90, 120, 180]
+        n for n in [18, 30, 36, 45, 60, 90, 120, 180, 240, 300, 360]
         if n <= len(theta_reconstruction)
     ]
 
@@ -790,7 +796,7 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
         pilihan_proyeksi = list(range(2, len(theta_reconstruction) + 1))
 
     jumlah_default = (
-        180 if 180 in pilihan_proyeksi
+        min(360, len(theta_reconstruction)) if min(360, len(theta_reconstruction)) in pilihan_proyeksi
         else pilihan_proyeksi[-1]
     )
 
@@ -805,19 +811,21 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
     # ========================================================
     #
     # Penting:
-    # Kita tidak mengambil "potongan" interval 0–360.
-    # Kita memilih N sudut yang tersebar merata dari 0 sampai <180°.
+    # Kita memilih N sudut yang tersebar merata pada rentang akuisisi
+    # aktual dari Modul 1, bukan memotong rentang sudut yang salah.
     #
     # Dengan demikian:
-    # N = 180 -> Δθ ≈ 1°
-    # N = 90  -> Δθ ≈ 2°
-    # N = 36  -> Δθ ≈ 5°
-    # N = 18  -> Δθ ≈ 10°
+    # Jika rentang akuisisi 360°:
+    # N = 360 -> Δθ ≈ 1°
+    # N = 180 -> Δθ ≈ 2°
+    # N = 90  -> Δθ ≈ 4°
+    # N = 36  -> Δθ ≈ 10°
+    # N = 18  -> Δθ ≈ 20°
     #
 
     theta_target = np.linspace(
         0.0,
-        180.0,
+        rentang_akuisisi,
         jumlah_proyeksi,
         endpoint=False
     )
@@ -880,8 +888,8 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
         f"""
         #### Hasil untuk {jumlah_proyeksi_aktual} Proyeksi
 
-        **Rentang sudut:** 0°–180°  
-        **Angular sampling:** ≈ {180.0 / jumlah_proyeksi_aktual:.2f}° per proyeksi
+        **Rentang sudut:** 0°–{rentang_akuisisi:.0f}°  
+        **Angular sampling:** ≈ {rentang_akuisisi / jumlah_proyeksi_aktual:.2f}° per proyeksi
         """
     )
 
@@ -913,7 +921,7 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
     theta_edges = np.concatenate([
         [max(0.0, theta_used[0] - delta_theta_visual / 2)],
         (theta_used[:-1] + theta_used[1:]) / 2,
-        [min(180.0, theta_used[-1] + delta_theta_visual / 2)]
+        [min(rentang_akuisisi, theta_used[-1] + delta_theta_visual / 2)]
     ])
 
     # pcolormesh membutuhkan edge yang konsisten.
@@ -933,7 +941,7 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
         vmax=1
     )
 
-    axes[0].set_xlim(0, 180)
+    axes[0].set_xlim(0, rentang_akuisisi)
     axes[0].set_ylim(detector_t[-1], detector_t[0])
 
     axes[0].set_title(
@@ -1035,8 +1043,8 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
     st.markdown(
         f"""
         Saat ini digunakan **{jumlah_proyeksi_aktual} proyeksi** pada rentang
-        **0°–180°**, sehingga jarak rata-rata antar sudut adalah sekitar
-        **{180.0 / jumlah_proyeksi_aktual:.2f}°**.
+        **0°–{rentang_akuisisi:.0f}°**, sehingga jarak rata-rata antar sudut adalah sekitar
+        **{rentang_akuisisi / jumlah_proyeksi_aktual:.2f}°**.
 
         Ketika jumlah proyeksi dikurangi:
 
@@ -1143,10 +1151,11 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
 
         | Jumlah Proyeksi | Δθ | Pertanyaan |
         |---:|---:|---|
-        | 18 | 10° | Apa artefak yang mulai terlihat? |
-        | 36 | 5° | Apakah struktur mulai lebih baik? |
-        | 90 | 2° | Bagaimana perubahan kualitas? |
-        | 180 | 1° | Bagaimana hasil pada sampling yang lebih rapat? |
+        | 18 | 20° | Apa artefak yang mulai terlihat pada rentang 360°? |
+        | 36 | 10° | Apakah struktur mulai lebih baik? |
+        | 90 | 4° | Bagaimana perubahan kualitas? |
+        | 180 | 2° | Bagaimana hasil pada sampling yang lebih rapat? |
+        | 360 | 1° | Bagaimana hasil pada satu rotasi penuh? |
 
         **Pertanyaan analisis:**
 
