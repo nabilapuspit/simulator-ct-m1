@@ -1160,21 +1160,70 @@ elif menu_terpilih == "Modul 2: Rekonstruksi 2D (SBP vs FBP)":
 
 
 # ============================================================
-# PAGE 3 — MODULE 3 — VISUALISASI
-# ============================================================
-# ============================================================
-
+# PAGE 3 — MODULE 3 — VISUALISASI & 3D SLICER
 # ============================================================
 
 elif menu_terpilih == "Modul 3: Manipulasi & Visualisasi":
-    st.title("Modul 3: Manipulasi & Visualisasi")
-    st.info(
+
+    st.title("Modul 3: Manipulasi Citra Medis & 3D Slicer")
+
+    st.markdown(
         """
-        Modul ini akan digunakan untuk mengeksplorasi:
-        - Manipulasi sinogram
-        - Filtering
-        - Perubahan parameter visualisasi
-        - Rekonstruksi 3D
-        - Visualisasi hasil CT-Scan
+        ### Pengantar Modul 3
+        Pada modul ini, mahasiswa akan beralih dari simulasi matematis tingkat dasar 
+        menuju perangkat lunak standar klinis profesional: **3D Slicer**. 
+
+        Praktikum ini dilakukan secara mandiri atau kelompok menggunakan data 
+        rekaman CT-Scan klinis asli (*DICOM*) yang tersedia di dalam 3D Slicer.
+        """
+    )
+
+    st.divider()
+
+    st.subheader("Panduan Praktikum & Step-by-Step 3D Slicer")
+
+    st.markdown(
+        """
+        #### 1. Persiapan Awal & Unduh Perangkat Lunak
+        1. Unduh dan instal **3D Slicer** melalui situs resmi: [slicer.org](https://www.slicer.org/).
+        2. Buka aplikasi 3D Slicer pada komputer/laptop Anda.
+
+        #### 2. Memuat Data Sampel CT-Scan (*Sample Data*)
+        1. Pada menu bagian atas, klik **File** $\\rightarrow$ **Download Sample Data**.
+        2. Pilih dataset **CTMR Head** atau **CT Chest** (data CT-Scan).
+        3. Tunggu beberapa saat hingga data berhasil diunduh dan otomatis dimuat ke dalam empat jendela tampilan (*Red, Green, Yellow slice views* dan *3D view*).
+
+        #### 3. Eksplorasi Navigasi Slice (Potongan Melintang)
+        1. Perhatikan tiga panel ortogonal (Axial, Sagittal, Coronal).
+        2. Gunakan *slider* penggulung (*slice slider*) pada masing-masing jendela untuk menelusuri potongan tubuh dari atas ke bawah atau depan ke belakang.
+        3. Amati bagaimana struktur anatomi berubah pada setiap lapisan (slice).
+
+        #### 4. Pengaturan Window Level dan Window Width (HU)
+        1. Buka modul **Volumes** di dalam 3D Slicer (pilih menu dropdown modul di pojok kiri atas).
+        2. Pada bagian **Display**, ubah preset *Window/Level* dari *Default* ke pilihan lain seperti:
+           - **Bone (Tulang):** Untuk melihat struktur kerangka dan tengkorak secara tajam.
+           - **Soft Tissue (Jaringan Lunak):** Untuk memperjelas organ dalam dan otot.
+           - **Lung (Paru-paru):** Untuk mengamati rongga udara pada organ pernapasan.
+        3. Perhatikan bagaimana perubahan kontras piksel memengaruhi visibilitas jaringan berdasarkan skala *Hounsfield Unit* (HU).
+
+        #### 5. 3D Volume Rendering
+        1. Pindah ke modul **Volume Rendering** (melalui menu dropdown modul).
+        2. Pada bagian *Volume*, pastikan dataset CT Anda terpilih.
+        3. Klik ikon mata (*visibility toggle*) di sebelah opsi *Volume Rendering* untuk mengaktifkan rekonstruksi 3D.
+        4. Ubah preset tampilan (misalnya ke *CT-Bone* atau *CT-Chest*) dan coba lakukan rotasi objek 3D menggunakan tetikus (*mouse*).
+        """
+    )
+
+    st.divider()
+
+    st.subheader("Tugas Mandiri / Kelompok (Modul 3)")
+
+    st.markdown(
+        """
+        Jawablah pertanyaan berikut sebagai bagian dari laporan praktikum Anda:
+
+        1. **Navigasi Slice:** Mengapa citra medis klinis memerlukan tiga bidang pandang utama (*Axial, Sagittal, Coronal*) secara bersamaan dalam analisis diagnostik?
+        2. **Windowing (HU):** Apa perbedaan mendasar antara pengaturan jendela (*window preset*) untuk tulang (*bone*) dan jaringan lunak (*soft tissue*)? Mengapa satu pengaturan standar tidak dapat menampilkan keduanya secara optimal?
+        3. **3D Rendering:** Jelaskan kelebihan dari visualisasi *3D Volume Rendering* dibandingkan penelusuran citra 2D konvensional bagi dokter bedah sebelum melakukan tindakan medis.
         """
     )
